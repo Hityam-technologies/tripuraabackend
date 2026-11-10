@@ -1,0 +1,13 @@
+process.env.NODE_ENV = 'test';
+process.env.JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'test-secret-key-must-be-at-least-32-bytes';
+process.env.MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/tripuraa-placeholder';
+process.env.TRYON_PROVIDER = 'mock';
+process.env.PUBLIC_BASE_URL = 'http://localhost:5000';
+process.env.WEBHOOK_SECRET = 'test-webhook-secret';
+process.env.ADMIN_ORIGIN = 'http://localhost:5173';
+process.env.CORS_ORIGINS = 'http://localhost:8081';
+process.env.STORAGE_DRIVER = 'local';
+process.env.UPLOAD_DIR = 'uploads-test';
+process.env.FASHN_API_KEY = '';
+process.env.FASHN_LOW_CREDIT_THRESHOLD = '20';
+process.env.PORT = '5000';
