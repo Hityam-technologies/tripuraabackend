@@ -41,10 +41,23 @@ describe('admin sarees', () => {
       numericPrice: 26000,
       images: [{ id: 'img-1', url: photo, sortOrder: 0, isPrimary: true }],
       image: { url: photo },
+      productCode: 'TSDBGBSR',
+      codeParts: 'TS • DB • GB • SR',
+      collectionLine: 'HERITAGE • ELEGANCE • HANDLOOM',
+      body: 'Dark brown with large gold leaf / paisley buttas',
+      border: 'Gap Border — thin elegant gold zari lines with gap',
+      pallu: 'Rich gold geometric checks + gold border + black tassels',
+      blouse: 'Dark brown with gold gap border',
+      bookingTitle: 'Heritage Saree — Sangrahah Collection',
+      codeLegend: 'Tripuraa Sangrahah • Dark Brown • Gap Border • Saree',
+      footerLine: 'Tripuraa Sangrahah • Heritage Sarees • Custom Lehenga for Girls',
     });
     expect(updated.status).toBe(200);
     expect(updated.body.data.title).toBe('Updated Kanchipuram');
     expect(updated.body.data.images[0].url).toBe(photo);
+    expect(updated.body.data.productCode).toBe('TSDBGBSR');
+    expect(updated.body.data.body).toBe('Dark brown with large gold leaf / paisley buttas');
+    expect(updated.body.data.footerLine).toContain('Heritage Sarees');
 
     const copy = await request(app).post(`/api/v1/admin/sarees/${id}/duplicate`).set(auth(admin.token));
     expect(copy.status).toBe(201);

@@ -90,7 +90,7 @@ async function seed() {
   });
   await upsertContent('support', {
     channels: [
-      { id: 'whatsapp', type: 'whatsapp', label: 'WhatsApp', value: '+919876543210', message: 'Namaste Tripuraa Sangrahah!', sortOrder: 1 },
+      { id: 'whatsapp', type: 'whatsapp', label: 'WhatsApp', value: '+916374174404', message: 'Namaste, I would like to order a saree from Tripuraa Sangrahah.', sortOrder: 1 },
       { id: 'instagram', type: 'instagram', label: 'Instagram', value: 'tripuraasangrahah', message: '', sortOrder: 2 },
       { id: 'helpline', type: 'phone', label: 'Helpline', value: '18008907264', message: '1800-890-SANGRAH', sortOrder: 3 },
     ],
