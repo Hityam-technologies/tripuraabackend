@@ -18,8 +18,14 @@ const schema = z.object({
   SMTP_PASS: z.string().optional().default(''),
   SMTP_FROM: z.string().optional().default('Tripuraa Sangrahah <no-reply@tripuraa.local>'),
   FASHN_API_KEY: z.string().optional().default(''),
-  FASHN_MODEL: z.enum(['tryon-v1.6', 'tryon-max']).default('tryon-v1.6'),
-  TRYON_PROVIDER: z.enum(['fashn', 'mock']).optional(),
+  FASHN_MODEL: z.preprocess(
+    (value) => (value === '' || value == null ? undefined : value),
+    z.enum(['tryon-v1.6', 'tryon-max']).default('tryon-v1.6'),
+  ),
+  TRYON_PROVIDER: z.preprocess(
+    (value) => (value === '' || value == null ? undefined : value),
+    z.enum(['fashn', 'mock']).optional(),
+  ),
   ALLOW_MOCK_TRYON: z.string().optional().default('false'),
   PUBLIC_BASE_URL: z.string().optional().default(''),
   FASHN_LOW_CREDIT_THRESHOLD: z.coerce.number().default(20),
@@ -31,7 +37,10 @@ const schema = z.object({
   S3_ACCESS_KEY_ID: z.string().optional().default(''),
   S3_SECRET_ACCESS_KEY: z.string().optional().default(''),
   S3_PUBLIC_BASE_URL: z.string().optional().default(''),
-  TRUST_PROXY: z.string().optional().default('false'),
+  TRUST_PROXY: z.preprocess(
+    (value) => (value === '' || value == null ? undefined : value),
+    z.string().optional(),
+  ),
   ADMIN_EMAIL: z.string().optional().default(''),
   ADMIN_PASSWORD: z.string().optional().default(''),
   TRYON_RENDER_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
@@ -64,7 +73,11 @@ function loadEnv() {
   }
 
   let tryOnProvider = env.TRYON_PROVIDER;
-  if (!tryOnProvider) tryOnProvider = env.FASHN_API_KEY ? 'fashn' : 'mock';
+  if (!tryOnProvider) {
+    if (env.FASHN_API_KEY) tryOnProvider = 'fashn';
+    else if (env.NODE_ENV === 'production') tryOnProvider = 'disabled';
+    else tryOnProvider = 'mock';
+  }
 
   if (env.NODE_ENV === 'production' && tryOnProvider === 'mock' && env.ALLOW_MOCK_TRYON !== 'true') {
     throw new Error('Refusing to boot with the mock try-on provider in production. Set ALLOW_MOCK_TRYON=true to override.');
@@ -83,7 +96,9 @@ function loadEnv() {
     useRs256,
     tryOnProvider,
     corsOrigins: env.CORS_ORIGINS.split(',').map((item) => item.trim()).filter(Boolean),
-    trustProxy: env.TRUST_PROXY === 'true' || env.TRUST_PROXY === '1',
+    trustProxy: env.TRUST_PROXY == null
+      ? env.NODE_ENV === 'production'
+      : env.TRUST_PROXY === 'true' || env.TRUST_PROXY === '1',
   };
   return cached;
 }

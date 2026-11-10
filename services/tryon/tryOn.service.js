@@ -76,6 +76,9 @@ async function deleteProfile(user, id) {
 }
 
 async function generate(user, { sareeId, drapeProfileId }) {
+  if (getEnv().tryOnProvider === 'disabled') {
+    throw new ApiError(503, 'TRYON_UNAVAILABLE', 'Virtual try-on is not available right now.');
+  }
   const configDoc = await getOrCreate();
   const enabled = configDoc.featureFlags?.tryOnEnabled !== false;
   if (!enabled) throw new ApiError(403, 'TRYON_DISABLED', 'Virtual try-on is turned off right now.');

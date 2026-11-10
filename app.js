@@ -40,8 +40,11 @@ function createApp() {
   setRunner(runtime.runner);
   app.set('jobRunner', runtime.runner);
   app.set('tryOnProvider', runtime.provider);
-  if (env.NODE_ENV !== 'test') runtime.runner.start();
+  if (env.NODE_ENV !== 'test' && env.tryOnProvider !== 'disabled') runtime.runner.start();
 
+  app.get('/', (_req, res) => {
+    res.status(200).json({ success: true, data: { service: 'tripuraa-api' } });
+  });
   app.use('/api/v1', routes);
   app.use(notFound);
   app.use(errorHandler);

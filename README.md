@@ -46,7 +46,7 @@ The API listens on `PORT` (default 5000). Routes are under `/api/v1`.
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Outbound mail. In development with no host, the OTP is written to the server log. Production refuses to send without SMTP |
 | `FASHN_API_KEY` | FASHN API key. Never returned by the API |
 | `FASHN_MODEL` | `tryon-v1.6` (default) or `tryon-max` |
-| `TRYON_PROVIDER` | `fashn` or `mock`. Empty uses `fashn` when a key is set, otherwise `mock` |
+| `TRYON_PROVIDER` | `fashn` or `mock`. Empty uses `fashn` when a key is set. In production with no key, try-on stays off and the rest of the API still boots |
 | `ALLOW_MOCK_TRYON` | Must be `true` to boot the mock provider in production |
 | `PUBLIC_BASE_URL` | Public origin. When set, FASHN is given a webhook URL |
 | `WEBHOOK_SECRET` | Query secret checked on `POST /api/v1/webhooks/fashn` |
@@ -54,7 +54,7 @@ The API listens on `PORT` (default 5000). Routes are under `/api/v1`.
 | `STORAGE_DRIVER` | `local` or `s3` |
 | `UPLOAD_DIR` | Local upload folder |
 | `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL` | S3 or Cloudflare R2 |
-| `TRUST_PROXY` | Set `true` behind a reverse proxy |
+| `TRUST_PROXY` | Set `true` behind a reverse proxy. Production defaults to `true` when this is left empty |
 | `TRYON_RENDER_RETENTION_DAYS` | Unsaved renders older than this are deleted on boot |
 | `PORTRAIT_MAX_BYTES` / `PRODUCT_MAX_BYTES` | Upload size limits |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Used only by `npm run create-admin` |
@@ -120,7 +120,20 @@ docker build -t tripuraa-api .
 docker run --env-file .env -p 5000:5000 tripuraa-api
 ```
 
-Put the process behind TLS, set `TRUST_PROXY=true`, and point `STORAGE_DRIVER=s3` at R2 or S3 in production. Local `uploads/` is for development.
+Put the process behind TLS and point `STORAGE_DRIVER=s3` at R2 or S3 in production. Local `uploads/` is wiped whenever the host restarts.
+
+On Render, set these environment variables on the web service (do not commit them):
+
+| Variable | Value |
+| --- | --- |
+| `MONGODB_URI` | Atlas connection string. Allow `0.0.0.0/0` in Atlas Network Access so Render can connect |
+| `JWT_ACCESS_SECRET` | At least 32 random bytes |
+| `PUBLIC_BASE_URL` | The Render URL, for example `https://tripuraabackend.onrender.com` |
+| `ADMIN_ORIGIN` | The admin site origin |
+| `CORS_ORIGINS` | Comma-separated app and admin origins |
+| `FASHN_API_KEY` | Optional. Leave empty to boot without virtual try-on |
+
+Set the health check path to `/api/v1/health`. The root path `/` also returns 200.
 
 ## Not included
 
