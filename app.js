@@ -22,7 +22,11 @@ function createApp() {
   if (env.trustProxy) app.set('trust proxy', 1);
 
   app.use(requestId);
-  app.use(helmet());
+  // cross-origin lets the admin site (a different address) read API data and images.
+  // The allow-list in cors.js still decides who may call the API.
+  app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }));
   app.use(corsMiddleware);
   app.use(compression());
   app.use(express.json({ limit: '1mb' }));

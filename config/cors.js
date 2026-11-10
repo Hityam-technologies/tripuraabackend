@@ -1,10 +1,11 @@
 const cors = require('cors');
 const { getEnv } = require('./env');
+const { isAdminOrigin } = require('./adminOrigin');
 
 function corsMiddleware(req, res, next) {
   const env = getEnv();
   const origin = req.headers.origin;
-  const isAdmin = Boolean(origin) && origin === env.ADMIN_ORIGIN;
+  const isAdmin = isAdminOrigin(origin, env);
   const appAllowed = Boolean(origin) && env.corsOrigins.includes(origin);
   const allowed = !origin || isAdmin || appAllowed;
 

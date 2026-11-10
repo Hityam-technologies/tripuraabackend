@@ -55,6 +55,13 @@ describe('admin auth', () => {
       .set('Origin', 'http://evil.example');
     expect(badOrigin.status).toBe(403);
 
+    const deployedAdmin = await request(app)
+      .post('/api/v1/admin/auth/refresh')
+      .set(CSRF_HEADER, 'XMLHttpRequest')
+      .set('Origin', 'https://tsadmin-gilt.vercel.app');
+    expect(deployedAdmin.status).not.toBe(403);
+    expect(deployedAdmin.body.error?.code).not.toBe('CSRF');
+
     const rotated = await csrf(admin.cookies);
     expect(rotated.status).toBe(200);
     expect(rotated.body.data.token).toBeTruthy();
