@@ -8,11 +8,11 @@ const imageUrlSchema = z.union([
 
 const sareeWriteSchema = z.object({
   title: z.string().trim().min(2),
-  brand: z.string().trim().min(1),
+  brand: z.string().trim().min(1).optional(),
   slug: z.string().trim().min(2).optional(),
-  category: z.string().trim().min(1),
-  numericPrice: z.coerce.number().positive(),
-  numericMrp: z.coerce.number().positive().optional(),
+  category: z.string().trim().min(1).optional(),
+  numericPrice: z.coerce.number().nonnegative().optional(),
+  numericMrp: z.coerce.number().nonnegative().optional(),
   weave: z.string().optional(),
   fabric: z.string().optional(),
   zari: z.string().optional(),
