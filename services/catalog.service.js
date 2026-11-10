@@ -97,12 +97,23 @@ async function adminGet(id) {
   return presentSaree(row, { admin: true });
 }
 
+function normalizeImageUrl(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'object' && value.url) return String(value.url).trim();
+  return '';
+}
+
 function imageDocs(urls = []) {
-  return urls.filter(Boolean).map((url, index) => ({
-    url,
-    sortOrder: index,
-    isPrimary: index === 0,
-  }));
+  return urls
+    .map(normalizeImageUrl)
+    .filter(Boolean)
+    .map((url, index) => ({
+      url,
+      key: '',
+      sortOrder: index,
+      isPrimary: index === 0,
+    }));
 }
 
 async function createSaree(input) {
@@ -186,10 +197,25 @@ async function updateSaree(id, input) {
   if (input.stockQuantity != null) doc.stockQuantity = input.stockQuantity;
   if (input.isFeatured != null) doc.isFeatured = input.isFeatured;
   if (input.isActive != null) doc.isActive = input.isActive;
-  if (input.tryOnImage) doc.defaultTryOnImageUrl = input.tryOnImage;
+  if (input.tryOnImage) doc.defaultTryOnImageUrl = normalizeImageUrl(input.tryOnImage);
   if (input.images) {
     doc.images = imageDocs(input.images);
-    doc.flatImageUrl = doc.images[0]?.url || doc.flatImageUrl;
+    doc.flatImageUrl = doc.images[0]?.url || '';
+    if (!input.tryOnImage && doc.flatImageUrl) {
+      doc.defaultTryOnImageUrl = doc.flatImageUrl;
+    }
+  } else if (input.image) {
+    const primary = normalizeImageUrl(input.image);
+    if (primary) {
+      doc.flatImageUrl = primary;
+      if (!doc.images.length) {
+        doc.images = imageDocs([primary]);
+      } else {
+        const currentPrimary = doc.images.find((image) => image.isPrimary) || doc.images[0];
+        if (currentPrimary) currentPrimary.url = primary;
+      }
+      if (!input.tryOnImage) doc.defaultTryOnImageUrl = primary;
+    }
   }
   await doc.save();
   return { before, after: presentSaree(doc.toObject(), { admin: true }) };
@@ -277,6 +303,32 @@ async function addImages(id, files) {
     order += 1;
   }
   if (!doc.flatImageUrl && doc.images[0]) doc.flatImageUrl = doc.images[0].url;
+  if (!doc.defaultTryOnImageUrl && doc.images[0]) doc.defaultTryOnImageUrl = doc.images[0].url;
+  await doc.save();
+  return { before, after: presentSaree(doc.toObject(), { admin: true }) };
+}
+
+/** Append image URLs (admin paste) without multipart upload */
+async function addImageUrls(id, urls = []) {
+  const doc = await Saree.findOne({ id, deletedAt: null });
+  if (!doc) throw new ApiError(404, 'RESOURCE_NOT_FOUND', `Saree with ID '${id}' was not found.`);
+  const before = presentSaree(doc.toObject(), { admin: true });
+  const cleaned = urls.map(normalizeImageUrl).filter(Boolean);
+  if (!cleaned.length) {
+    throw new ApiError(400, 'VALIDATION_ERROR', 'Provide at least one image URL.');
+  }
+  let order = doc.images.length;
+  for (const url of cleaned) {
+    doc.images.push({
+      url,
+      key: '',
+      sortOrder: order,
+      isPrimary: doc.images.length === 0 && order === 0,
+    });
+    order += 1;
+  }
+  if (!doc.flatImageUrl && doc.images[0]) doc.flatImageUrl = doc.images[0].url;
+  if (!doc.defaultTryOnImageUrl && doc.images[0]) doc.defaultTryOnImageUrl = doc.images[0].url;
   await doc.save();
   return { before, after: presentSaree(doc.toObject(), { admin: true }) };
 }
@@ -313,6 +365,9 @@ async function deleteImage(id, imageId) {
   image.deleteOne();
   if (!doc.images.some((item) => item.isPrimary) && doc.images[0]) doc.images[0].isPrimary = true;
   doc.flatImageUrl = doc.images.find((item) => item.isPrimary)?.url || '';
+  if (!doc.images.some((item) => item.url === doc.defaultTryOnImageUrl)) {
+    doc.defaultTryOnImageUrl = doc.flatImageUrl;
+  }
   await doc.save();
   return { before, after: presentSaree(doc.toObject(), { admin: true }) };
 }
@@ -379,6 +434,7 @@ module.exports = {
   duplicateSaree,
   bulkSarees,
   addImages,
+  addImageUrls,
   reorderImages,
   deleteImage,
   createCategory,

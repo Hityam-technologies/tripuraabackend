@@ -5,12 +5,56 @@ const Saree = require('../models/Saree');
 const Content = require('../models/Content');
 const SystemConfig = require('../models/SystemConfig');
 
+const pexels = (id) =>
+  `https://images.pexels.com/photos/${id}/pexels-photo-${id}.jpeg?auto=compress&cs=tinysrgb&w=1400`;
+const unsplash = (photoId) =>
+  `https://images.unsplash.com/${photoId}?auto=format&fit=crop&w=1400&q=80`;
+
+/** Curated model/saree gallery URLs (Pexels + Unsplash License) */
+const GALLERY = {
+  crimson: [
+    pexels(39816025),
+    unsplash('photo-1620319475554-0137bfa57829'),
+    pexels(37054328),
+  ],
+  gold: [
+    pexels(20158862),
+    pexels(20158863),
+    unsplash('photo-1756376756461-7150fc562787'),
+  ],
+  emerald: [
+    unsplash('photo-1771654104693-c1c0cc7c7940'),
+    unsplash('photo-1680711555406-a3bddf233f48'),
+    pexels(37054325),
+  ],
+  pink: [pexels(36497431), pexels(36497430), pexels(36497432)],
+  blue: [
+    unsplash('photo-1728562870256-cac40eabacb5'),
+    pexels(37054330),
+    pexels(37054329),
+  ],
+  silver: [pexels(39816024), pexels(39816020), pexels(20158860)],
+};
+
+const SAREE_IMAGES = {
+  'saree-1': GALLERY.gold,
+  'saree-2': GALLERY.emerald,
+  'saree-3': GALLERY.crimson,
+  'saree-4': GALLERY.pink,
+  'saree-5': GALLERY.gold,
+  'saree-6': GALLERY.blue,
+  'saree-7': GALLERY.pink,
+  'saree-8': GALLERY.crimson,
+  'saree-9': GALLERY.gold,
+  'saree-10': GALLERY.silver,
+};
+
 const CATEGORIES = [
-  { id: 'sarees', label: 'Kanchipuram', sortOrder: 1 },
-  { id: 'katan', label: 'Banarasi', sortOrder: 2 },
-  { id: 'bridal', label: 'Bridal', sortOrder: 3 },
-  { id: 'tissue', label: 'Tissue', sortOrder: 4 },
-  { id: 'paithani', label: 'Paithani', sortOrder: 5 },
+  { id: 'sarees', label: 'Kanchipuram', sortOrder: 1, coverImageUrl: GALLERY.gold[0] },
+  { id: 'katan', label: 'Banarasi', sortOrder: 2, coverImageUrl: GALLERY.emerald[0] },
+  { id: 'bridal', label: 'Bridal', sortOrder: 3, coverImageUrl: GALLERY.crimson[0] },
+  { id: 'tissue', label: 'Tissue', sortOrder: 4, coverImageUrl: GALLERY.silver[0] },
+  { id: 'paithani', label: 'Paithani', sortOrder: 5, coverImageUrl: GALLERY.blue[0] },
 ];
 
 const SAREES = [
@@ -35,8 +79,14 @@ const FAQ = [
   ['6', 'How does the AI Virtual Try-On work?', 'The studio sends your portrait and the flat saree photo to the drape provider, then stores the result. Portraits are private and removed when you delete your account.'],
 ];
 
-function imagesFor() {
-  return [];
+function imagesFor(sareeId) {
+  const urls = SAREE_IMAGES[sareeId] || GALLERY.gold;
+  return urls.map((url, index) => ({
+    url,
+    key: '',
+    sortOrder: index,
+    isPrimary: index === 0,
+  }));
 }
 
 const CARDS = {
@@ -180,14 +230,22 @@ async function seed() {
   for (const category of CATEGORIES) {
     await Category.updateOne(
       { id: category.id },
-      { $set: { ...category, coverImageUrl: '', isActive: true } },
+      {
+        $set: {
+          label: category.label,
+          sortOrder: category.sortOrder,
+          coverImageUrl: category.coverImageUrl || '',
+          isActive: true,
+        },
+      },
       { upsert: true },
     );
   }
 
   for (let index = 0; index < SAREES.length; index += 1) {
     const [id, slug, category, brand, title, price, mrp, weave, fabric, zari, origin, colorTheme, description, stockStatus, stockQuantity, isFeatured] = SAREES[index];
-    const images = imagesFor();
+    const images = imagesFor(id);
+    const primaryUrl = images[0]?.url || '';
     await Saree.updateOne(
       { id },
       {
@@ -196,8 +254,8 @@ async function seed() {
           description: (CARDS[id] && CARDS[id].description) || description,
           ...(CARDS[id] || {}),
           stockStatus, stockQuantity, isFeatured, isActive: true, deletedAt: null,
-          flatImageUrl: '',
-          defaultTryOnImageUrl: '',
+          flatImageUrl: primaryUrl,
+          defaultTryOnImageUrl: primaryUrl,
           images,
         },
       },

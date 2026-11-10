@@ -44,6 +44,11 @@ const addImages = asyncHandler(async (req, res) => {
   await writeAudit(req, { action: 'ADD_SAREE_IMAGES', resource: 'saree', resourceId: req.params.id, before: result.before, after: result.after });
   sendOk(res, result.after);
 });
+const addImageUrls = asyncHandler(async (req, res) => {
+  const result = await catalog.addImageUrls(req.params.id, req.body.urls);
+  await writeAudit(req, { action: 'ADD_SAREE_IMAGE_URLS', resource: 'saree', resourceId: req.params.id, before: result.before, after: result.after });
+  sendOk(res, result.after);
+});
 const reorderImages = asyncHandler(async (req, res) => {
   const result = await catalog.reorderImages(req.params.id, req.body.order);
   await writeAudit(req, { action: 'REORDER_SAREE_IMAGES', resource: 'saree', resourceId: req.params.id, before: result.before, after: result.after });
@@ -156,7 +161,7 @@ const listAudit = asyncHandler(async (req, res) => sendOk(res, await auditLogs.l
 
 module.exports = {
   stats,
-  listSarees, getSaree, createSaree, updateSaree, deleteSaree, duplicateSaree, bulkSarees, addImages, reorderImages, deleteImage,
+  listSarees, getSaree, createSaree, updateSaree, deleteSaree, duplicateSaree, bulkSarees, addImages, addImageUrls, reorderImages, deleteImage,
   listCategories, createCategory, updateCategory, deleteCategory, reorderCategories,
   listEnquiries, getEnquiry, enquiryStatus, enquiryNote, exportEnquiries,
   listUsers, getUser, blockUser, unblockUser,

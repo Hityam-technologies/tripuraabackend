@@ -8,6 +8,7 @@ module.exports = {
   duplicateSaree: admin.duplicateSaree,
   bulkSarees: admin.bulkSarees,
   addImages: admin.addImages,
+  addImageUrls: admin.addImageUrls,
   reorderImages: admin.reorderImages,
   deleteImage: admin.deleteImage,
 };

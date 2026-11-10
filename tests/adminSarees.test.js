@@ -108,5 +108,12 @@ describe('admin sarees', () => {
     expect(order.body.data.images.find((image) => image.isPrimary).id).toBe(images[images.length - 1].id);
     const deleted = await request(app).delete(`/api/v1/admin/sarees/saree-1/images/${images[0].id}`).set(auth(admin.token));
     expect(deleted.status).toBe(200);
+
+    const byUrl = await request(app)
+      .post('/api/v1/admin/sarees/saree-1/images/urls')
+      .set(auth(admin.token))
+      .send({ urls: [photo, `${photo}&extra=1`] });
+    expect(byUrl.status).toBe(200);
+    expect(byUrl.body.data.images.some((image) => image.url === photo)).toBe(true);
   });
 });

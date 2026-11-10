@@ -65,4 +65,15 @@ const imageOrderSchema = z.object({
   })).min(1),
 });
 
-module.exports = { sareeWriteSchema, publicSareeQuery, adminSareeQuery, bulkSchema, imageOrderSchema };
+const imageUrlsSchema = z.object({
+  urls: z.array(imageUrlSchema).min(1),
+});
+
+module.exports = {
+  sareeWriteSchema,
+  publicSareeQuery,
+  adminSareeQuery,
+  bulkSchema,
+  imageOrderSchema,
+  imageUrlsSchema,
+};
