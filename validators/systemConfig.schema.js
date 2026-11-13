@@ -10,6 +10,8 @@ const systemConfigSchema = z.object({
   tryOnDailyLimitPerUser: z.coerce.number().int().min(1).max(100).optional(),
   tryOnUserRateMax: z.coerce.number().int().min(1).max(100).optional(),
   tryOnModel: z.enum(['tryon-v1.6', 'tryon-max']).optional(),
+  gstRate: z.coerce.number().min(0).max(100).optional(),
+  gstInclusive: z.boolean().optional(),
   featureFlags: z.object({
     tryOnEnabled: z.boolean().optional(),
     enableTryOn: z.boolean().optional(),

@@ -16,7 +16,7 @@ function slugify(value) {
 }
 
 function customerFilter(extra = {}) {
-  return { isActive: true, deletedAt: null, ...extra };
+  return { isActive: true, deletedAt: null, stockQuantity: { $gt: 0 }, ...extra };
 }
 
 async function listCategories(activeOnly = true) {

@@ -20,6 +20,7 @@ router.use('/users', require('./user/profile.routes'));
 router.use('/users', require('./user/wishlist.routes'));
 router.use('/users', require('./user/enquiry.routes'));
 router.post('/orders/enquiry', authUser, validate({ body: enquiryCreateSchema }), enquiry.create);
+router.use('/billing', require('./billing'));
 router.use('/admin', require('./admin'));
 
 if (getEnv().PUBLIC_BASE_URL) {

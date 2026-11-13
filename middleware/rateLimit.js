@@ -7,6 +7,7 @@ const rateConfig = {
   otpMax: process.env.NODE_ENV === 'test' ? 200 : 3,
   forgotMax: process.env.NODE_ENV === 'test' ? 200 : 3,
   adminLoginMax: process.env.NODE_ENV === 'test' ? 200 : 5,
+  billingPinMax: process.env.NODE_ENV === 'test' ? 200 : 8,
 };
 
 function build({ windowMs, max, name }) {
@@ -33,4 +34,5 @@ module.exports = {
   otpLimiter: build({ windowMs: 5 * 60 * 1000, max: () => rateConfig.otpMax, name: 'otp' }),
   forgotLimiter: build({ windowMs: 15 * 60 * 1000, max: () => rateConfig.forgotMax, name: 'forgot' }),
   adminLoginLimiter: build({ windowMs: 15 * 60 * 1000, max: () => rateConfig.adminLoginMax, name: 'admin-login' }),
+  billingPinLimiter: build({ windowMs: 15 * 60 * 1000, max: () => rateConfig.billingPinMax, name: 'billing-pin' }),
 };

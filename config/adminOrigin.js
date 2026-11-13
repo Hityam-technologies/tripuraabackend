@@ -32,6 +32,8 @@ function isAdminOrigin(origin, env) {
 
   try {
     const url = new URL(normalized);
+    const localHost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+    if (localHost && (url.protocol === 'http:' || url.protocol === 'https:')) return true;
     return url.protocol === 'https:' && isPreviewAdminHost(url.hostname);
   } catch {
     return false;

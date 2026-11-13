@@ -21,6 +21,8 @@ function presentConfig(doc) {
     tryOnUserRateMax: doc.tryOnUserRateMax,
     tryOnUserRateWindowMs: doc.tryOnUserRateWindowMs,
     tryOnModel: doc.tryOnModel,
+    gstRate: Number.isFinite(doc.gstRate) ? doc.gstRate : 5,
+    gstInclusive: doc.gstInclusive !== false,
     updatedAt: doc.updatedAt || null,
     updatedBy: doc.updatedBy || '',
   };
@@ -48,6 +50,8 @@ async function updateConfig(patch, actor) {
   if (patch.tryOnDailyLimitPerUser != null) doc.tryOnDailyLimitPerUser = patch.tryOnDailyLimitPerUser;
   if (patch.tryOnUserRateMax != null) doc.tryOnUserRateMax = patch.tryOnUserRateMax;
   if (patch.tryOnModel) doc.tryOnModel = patch.tryOnModel;
+  if (patch.gstRate != null) doc.gstRate = patch.gstRate;
+  if (patch.gstInclusive != null) doc.gstInclusive = patch.gstInclusive;
   const flags = { ...(doc.featureFlags?.toObject?.() || doc.featureFlags || {}) };
   const enabled = patch.tryOnEnabled ?? patch.enableTryOn ?? patch.featureFlags?.tryOnEnabled ?? patch.featureFlags?.enableTryOn;
   if (enabled != null) flags.tryOnEnabled = Boolean(enabled);

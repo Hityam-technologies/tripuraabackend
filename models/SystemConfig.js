@@ -19,6 +19,8 @@ const systemConfigSchema = new mongoose.Schema(
     tryOnUserRateMax: { type: Number, default: 8 },
     tryOnUserRateWindowMs: { type: Number, default: 10 * 60 * 1000 },
     tryOnModel: { type: String, enum: ['tryon-v1.6', 'tryon-max'], default: 'tryon-v1.6' },
+    gstRate: { type: Number, default: 5, min: 0, max: 100 },
+    gstInclusive: { type: Boolean, default: true },
   },
   { timestamps: true },
 );
