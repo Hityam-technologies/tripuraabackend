@@ -8,19 +8,29 @@ function meta(req) {
   return { ip: req.ip, userAgent: req.get('user-agent') || '' };
 }
 
-function setCookie(res, token) {
+function cookieOptions() {
   const env = getEnv();
-  res.cookie(ADMIN_COOKIE, token, {
+  return {
     httpOnly: true,
+    // Lax stays on this site across reloads. Strict was dropped on some production navigations.
     secure: env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: 'lax',
     path: ADMIN_COOKIE_PATH,
+  };
+}
+
+function setCookie(res, token) {
+  res.set('Cache-Control', 'no-store');
+  res.cookie(ADMIN_COOKIE, token, {
+    ...cookieOptions(),
     maxAge: 12 * 60 * 60 * 1000,
   });
 }
 
 function clearCookie(res) {
-  res.clearCookie(ADMIN_COOKIE, { path: ADMIN_COOKIE_PATH });
+  res.set('Cache-Control', 'no-store');
+  // Clear options must match the cookie or the browser keeps the old session.
+  res.clearCookie(ADMIN_COOKIE, cookieOptions());
 }
 
 const login = asyncHandler(async (req, res) => {

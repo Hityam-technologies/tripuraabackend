@@ -10,7 +10,8 @@ const FASHN_RUN_WINDOW_MS = 60 * 1000;
 const FASHN_STATUS_LIMIT = 50;
 const FASHN_STATUS_WINDOW_MS = 10 * 1000;
 const ADMIN_COOKIE = 'admin_refresh';
-const ADMIN_COOKIE_PATH = '/api/v1/admin/auth';
+// Sent with every API call on this site, including the refresh call after a reload.
+const ADMIN_COOKIE_PATH = '/api';
 const CSRF_HEADER = 'x-requested-with';
 
 module.exports = {
