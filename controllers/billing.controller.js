@@ -107,10 +107,14 @@ const adminListStaff = asyncHandler(async (_req, res) => {
   sendOk(res, { staff: await billing.listStaff() });
 });
 
+const adminOpenSession = asyncHandler(async (req, res) => {
+  sendOk(res, await billing.openForAdmin(req.admin, meta(req)));
+});
+
 module.exports = {
   pin, logout, me, settings, services, products, categories,
   createInvoice, invoices, invoice, returnInvoice, whatsapp,
   held, hold, resume, discard, soldOut, restock,
   customers, lookup, createCustomer, summary,
-  adminCreateStaff, adminListStaff,
+  adminCreateStaff, adminListStaff, adminOpenSession,
 };

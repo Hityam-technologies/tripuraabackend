@@ -6,6 +6,7 @@ const billingStaffSchema = new mongoose.Schema(
     role: { type: String, default: 'Cashier', maxlength: 80 },
     register: { type: String, default: 'Counter 01', maxlength: 80 },
     phone: { type: String, default: '', maxlength: 24 },
+    adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', unique: true, sparse: true },
     pinHash: { type: String, required: true },
     isActive: { type: Boolean, default: true, index: true },
     failedAttempts: { type: Number, default: 0 },

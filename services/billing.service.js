@@ -180,28 +180,54 @@ async function verifyPin(pin, meta = {}) {
   if (!matched) {
     throw new ApiError(401, 'INVALID_PIN', 'Invalid 6-digit security PIN.');
   }
-  matched.failedAttempts = 0;
-  matched.lockedUntil = null;
-  await matched.save();
+  return issueSession(matched, meta, `Staff ${matched.name} unlocked ${matched.register}`);
+}
+
+async function issueSession(staff, meta, description) {
+  staff.failedAttempts = 0;
+  staff.lockedUntil = null;
+  await staff.save();
   const jti = randomToken(16);
-  const token = signBillingToken(matched, jti);
+  const token = signBillingToken(staff, jti);
   const decoded = verifyAccess(token);
   await BillingSession.create({
     jti,
-    staffId: matched._id,
+    staffId: staff._id,
     expiresAt: new Date(decoded.exp * 1000),
   });
   await recordAudit({
     action: 'BILLING_LOGIN',
     resource: 'billing',
-    resourceId: String(matched._id),
-    description: `Staff ${matched.name} unlocked ${matched.register}`,
-    actorId: String(matched._id),
-    actorName: matched.name,
+    resourceId: String(staff._id),
+    description,
+    actorId: String(staff._id),
+    actorName: staff.name,
     ip: meta.ip || '',
     userAgent: meta.userAgent || '',
   });
-  return { token, staff: presentStaff(matched) };
+  return { token, staff: presentStaff(staff) };
+}
+
+async function openForAdmin(admin, meta = {}) {
+  let staff = await BillingStaff.findOne({ adminId: admin._id });
+  if (!staff) {
+    staff = await BillingStaff.create({
+      name: admin.name || 'Store Admin',
+      role: 'Admin',
+      register: 'Admin Portal',
+      phone: '',
+      pinHash: await hashPassword(randomToken(24)),
+      adminId: admin._id,
+      isActive: true,
+    });
+  } else if (!staff.isActive) {
+    staff.isActive = true;
+  }
+  return issueSession(
+    staff,
+    meta,
+    `Admin ${admin.name || 'Store Admin'} opened the register`,
+  );
 }
 
 async function logout(staff, jti, meta = {}) {
@@ -756,6 +782,7 @@ module.exports = {
   createStaff,
   listStaff,
   verifyPin,
+  openForAdmin,
   logout,
   listServices,
   gstSettings,

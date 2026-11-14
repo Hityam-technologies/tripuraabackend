@@ -46,6 +46,29 @@ describe('billing register', () => {
     expect(after.status).toBe(401);
   });
 
+  test('an admin opens the register without a PIN and can see the sarees', async () => {
+    await seedCategory();
+    await seedSaree({ stockQuantity: 2, price: 10000 });
+    const admin = await createAdminSession(app);
+
+    const direct = await request(app).get('/api/v1/billing/products').set(auth(admin.token));
+    expect(direct.status).toBe(403);
+
+    const opened = await request(app).post('/api/v1/admin/billing/session').set(auth(admin.token));
+    expect(opened.status).toBe(200);
+    expect(opened.body.data.token).toBeTruthy();
+    expect(opened.body.data.staff.name).toBeTruthy();
+    expect(opened.body.data.staff.pin).toBeUndefined();
+
+    const products = await request(app).get('/api/v1/billing/products').set(auth(opened.body.data.token));
+    expect(products.status).toBe(200);
+    expect(products.body.data.products.some((item) => item.id === 'saree-1')).toBe(true);
+
+    const again = await request(app).post('/api/v1/admin/billing/session').set(auth(admin.token));
+    expect(again.status).toBe(200);
+    expect(again.body.data.staff.id).toBe(opened.body.data.staff.id);
+  });
+
   test('sells stock once, keeps the tax snapshot, and hides a sold-out saree', async () => {
     await seedCategory();
     await seedSaree({ stockQuantity: 1, price: 10500, mrp: 12000 });

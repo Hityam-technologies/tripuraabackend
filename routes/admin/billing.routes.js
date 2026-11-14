@@ -6,5 +6,6 @@ const billing = require('../../controllers/billing.controller');
 const router = Router();
 router.get('/staff', billing.adminListStaff);
 router.post('/staff', validate({ body: staffCreateSchema }), billing.adminCreateStaff);
+router.post('/session', billing.adminOpenSession);
 
 module.exports = router;
