@@ -104,4 +104,16 @@ describe('admin auth', () => {
     const back = await request(app).post('/api/v1/admin/auth/login').send({ email: admin.email, password: 'Final@1234' });
     expect(back.status).toBe(200);
   });
+
+  test('logout clears the session even without an access token', async () => {
+    const admin = await createAdminSession(app);
+    const loggedOut = await request(app)
+      .post('/api/v1/admin/auth/logout')
+      .set('Cookie', admin.cookies)
+      .set(CSRF_HEADER, 'XMLHttpRequest')
+      .set('Origin', 'http://localhost:5173');
+    expect(loggedOut.status).toBe(200);
+    const again = await csrf(admin.cookies);
+    expect(again.status).toBe(401);
+  });
 });

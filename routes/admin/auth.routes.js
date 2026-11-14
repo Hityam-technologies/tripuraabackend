@@ -11,7 +11,7 @@ router.post('/login', adminLoginLimiter, validate({ body: authSchema.loginSchema
 router.post('/refresh', csrf, auth.refresh);
 router.post('/forgot-password', forgotLimiter, validate({ body: authSchema.loginSchema.pick({ email: true }) }), auth.forgotPassword);
 router.post('/reset-password', forgotLimiter, validate({ body: authSchema.resetSchema }), auth.resetPassword);
-router.post('/logout', requireAdmin, auth.logout);
+router.post('/logout', csrf, auth.logout);
 router.get('/me', requireAdmin, auth.me);
 router.put('/change-password', requireAdmin, validate({ body: authSchema.changePasswordSchema }), auth.changePassword);
 

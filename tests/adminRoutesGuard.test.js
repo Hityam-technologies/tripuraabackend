@@ -51,7 +51,6 @@ const protectedRoutes = [
   ['put', '/api/v1/admin/system-config'],
   ['get', '/api/v1/admin/audit-logs'],
   ['get', '/api/v1/admin/auth/me'],
-  ['post', '/api/v1/admin/auth/logout'],
   ['put', '/api/v1/admin/auth/change-password'],
 ];
 
