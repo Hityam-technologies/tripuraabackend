@@ -4,6 +4,7 @@ const Category = require('../models/Category');
 const Saree = require('../models/Saree');
 const Content = require('../models/Content');
 const SystemConfig = require('../models/SystemConfig');
+const { TERMS, POLICY } = require('../data/legalContent');
 
 const pexels = (id) =>
   `https://images.pexels.com/photos/${id}/pexels-photo-${id}.jpeg?auto=compress&cs=tinysrgb&w=1400`;
@@ -73,10 +74,10 @@ const SAREES = [
 const FAQ = [
   ['1', 'Are all sarees 100% pure silk and certified?', 'Each handloom drape carries a Silk Mark and a tested zari certificate, sourced from weaver clusters in Kanchipuram, Varanasi, and Paithan.'],
   ['2', 'How do I care for pure zari and heirloom handlooms?', 'Dry clean only. Store folded in unbleached cotton and refold every few months. Avoid metal hangers.'],
-  ['3', 'Can I schedule a bespoke bridal consultation?', 'Yes. Private consultations are available at the Jubilee Hills atelier or over WhatsApp video. Loom commissions take 4–8 weeks.'],
-  ['4', 'What is the shipping timeline and transit insurance?', 'Domestic orders ship within 24–48 hours and usually arrive in 3–5 business days. International dispatches take 5–8 business days. Shipments are insured.'],
-  ['5', 'What is your exchange and return policy?', 'Unused sarees with security tags intact can be exchanged within 7 days. Custom loom commissions are made to order and are not refundable.'],
-  ['6', 'How does the AI Virtual Try-On work?', 'The studio sends your portrait and the flat saree photo to the drape provider, then stores the result. Portraits are private and removed when you delete your account.'],
+  ['3', 'Can I schedule a bespoke bridal consultation?', 'Yes. Private consultations are available at the Jubilee Hills atelier or over WhatsApp video. Custom lehengas for girls should be booked one month before — made on order only.'],
+  ['4', 'What is the shipping timeline?', 'Delivery time is shared after order confirmation. Please check the parcel on delivery; if tampered, record a video while opening and inform us within 24 hours.'],
+  ['5', 'What is your return / exchange policy?', 'No returns and no exchanges after purchase. Virtual Try-On is provided so you can decide with confidence before you buy. All sales are final.'],
+  ['6', 'How does Virtual Try-On work and what does it cost?', 'First 3 Try-Ons are free. From the 4th Try-On, ₹20 is charged per Try-On (non-refundable). AI Try-On is a preview only — colour and drape may differ slightly from the real handloom. Delete Try-On photos immediately after use.'],
 ];
 
 function imagesFor(sareeId) {
@@ -292,21 +293,11 @@ async function seed() {
     items: FAQ.map(([id, question, answer], sortOrder) => ({ id, question, answer, sortOrder })),
   });
   await upsertContent('legal-terms', {
-    title: 'Terms of Use',
-    markdown: 'Orders are confirmed only after the atelier accepts your enquiry. Custom weaves are made to order.',
-    sections: [
-      { title: 'Orders', content: 'An enquiry is a request, not a paid checkout. The atelier confirms price, weave time, and dispatch.' },
-      { title: 'Try-on', content: 'Portraits are used only to generate a drape and are deleted when you delete your account.' },
-    ],
+    ...TERMS,
     updatedAt: new Date().toISOString(),
   });
   await upsertContent('legal-policy', {
-    title: 'Privacy Policy',
-    markdown: 'We store your account, wishlist, enquiries, and try-on photos so the app can work.',
-    sections: [
-      { title: 'What we store', content: 'Name, email, phone, saved looks, and enquiry messages.' },
-      { title: 'Photos', content: 'Portrait files stay private. They are sent to the try-on provider only when you generate a drape.' },
-    ],
+    ...POLICY,
     updatedAt: new Date().toISOString(),
   });
 

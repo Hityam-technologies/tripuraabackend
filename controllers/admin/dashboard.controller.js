@@ -146,7 +146,18 @@ const putFaq = asyncHandler(async (req, res) => saveContent(req, res, 'faq', req
 const getLegal = asyncHandler(async (req, res) => sendOk(res, await content.legal(req.params.slug || req.params.type)));
 const putLegal = asyncHandler(async (req, res) => {
   const slug = req.params.slug || req.params.type;
-  const data = { ...req.body, updatedAt: new Date().toISOString() };
+  // Merge so admin section edits do not wipe intro / tryOnConsent / contact fields
+  let existing = null;
+  try {
+    existing = await content.legal(slug);
+  } catch {
+    existing = {};
+  }
+  const data = {
+    ...existing,
+    ...req.body,
+    updatedAt: new Date().toISOString(),
+  };
   await saveContent(req, res, `legal-${slug}`, data);
 });
 

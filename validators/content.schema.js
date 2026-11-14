@@ -40,10 +40,30 @@ const faqSchema = z.object({
   })),
 });
 
+const legalSectionSchema = z.object({
+  title: z.string(),
+  content: z.string(),
+  id: z.string().optional(),
+});
+
+const tryOnConsentSchema = z.object({
+  title: z.string().optional(),
+  points: z.array(z.string()).optional(),
+  agreeLabel: z.string().optional(),
+}).optional();
+
 const legalSchema = z.object({
-  title: z.string().min(1),
+  title: z.string().min(1).optional(),
+  subtitle: z.string().optional(),
+  intro: z.string().optional(),
   markdown: z.string().optional().default(''),
-  sections: z.array(z.object({ title: z.string(), content: z.string() })).optional().default([]),
+  effectiveDate: z.string().optional(),
+  contactPhone: z.string().optional(),
+  contactNote: z.string().optional(),
+  closing: z.string().optional(),
+  agreeLine: z.string().optional(),
+  tryOnConsent: tryOnConsentSchema,
+  sections: z.array(legalSectionSchema).optional().default([]),
   updatedAt: z.string().optional(),
 });
 
