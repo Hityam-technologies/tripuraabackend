@@ -40,7 +40,7 @@ const tryOnSettingsSchema = z.object({
   freeTryOnQuota: z.coerce.number().int().min(0).max(100).optional(),
   paidTryOnPriceInr: z.coerce.number().min(0).max(100000).optional(),
   chargeEnforced: z.boolean().optional(),
-  reason: z.string().trim().min(3).max(300),
+  reason: z.string().trim().max(300).optional(),
 });
 
 module.exports = {

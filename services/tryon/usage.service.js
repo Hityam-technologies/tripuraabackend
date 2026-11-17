@@ -591,8 +591,7 @@ async function getSettings() {
 }
 
 async function updateSettings(input, actor, meta) {
-  const reason = String(input.reason || '').trim();
-  if (reason.length < 3) throw new ApiError(400, 'REASON_REQUIRED', 'A reason is required to change the try-on rate.');
+  const reason = String(input.reason || '').trim() || 'Updated try-on prices';
   const config = await getOrCreate();
   const before = presentSettings(config);
   if (input.rupeesPerCredit != null) {
