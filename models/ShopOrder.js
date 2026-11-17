@@ -54,7 +54,7 @@ const shopOrderSchema = new mongoose.Schema(
     },
     paymentGatewayRef: { type: String, default: '' },
     shippingAddress: { type: addressSnapshotSchema, required: true },
-    estimatedDelivery: { type: String, default: '3 - 5 business days' },
+    estimatedDelivery: { type: String, default: '' },
     cancelledAt: { type: Date, default: null },
   },
   { timestamps: true },

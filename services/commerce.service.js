@@ -88,7 +88,7 @@ function snapshotAddress(doc) {
 function statusLabel(status) {
   return {
     CONFIRMED: 'Order Confirmed',
-    PROCESSING: 'Handcrafted Packaging',
+    PROCESSING: 'Packing',
     IN_TRANSIT: 'Out for Delivery',
     DELIVERED: 'Delivered',
     CANCELLED: 'Cancelled',
@@ -97,11 +97,11 @@ function statusLabel(status) {
 
 function trackingSteps(status) {
   const steps = [
-    { title: 'Order Placed', desc: 'Received & verified' },
-    { title: 'Order Confirmed', desc: 'Reserved from master weaver' },
-    { title: 'Handcrafted Packaging', desc: 'Quality inspected & boxed' },
-    { title: 'Out for Delivery', desc: 'Insured courier transit' },
-    { title: 'Delivered', desc: 'Doorstep handover' },
+    { title: 'Order Placed' },
+    { title: 'Order Confirmed' },
+    { title: 'Packing' },
+    { title: 'Out for Delivery' },
+    { title: 'Delivered' },
   ];
   const currentIndex = {
     CONFIRMED: 2,
@@ -134,7 +134,7 @@ function presentOrder(order) {
     promoCode: order.promoCode || '',
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
-    estimatedDelivery: order.estimatedDelivery,
+    estimatedDelivery: '',
     customerName: order.customerName || '',
     customerPhone: order.customerPhone || '',
     customerEmail: order.customerEmail || '',

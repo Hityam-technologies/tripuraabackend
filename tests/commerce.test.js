@@ -90,6 +90,6 @@ describe('shop orders', () => {
     expect(moved.body.data.trackingSteps[3].current).toBe(true);
 
     const mine = await request(app).get('/api/v1/orders').set(auth(customer.token));
-    expect(mine.body.data[0].statusLabel).toBe('Handcrafted Packaging');
+    expect(mine.body.data[0].statusLabel).toBe('Packing');
   });
 });
