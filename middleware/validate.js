@@ -1,4 +1,5 @@
 const { ApiError, zodDetails } = require('../utils/ApiError');
+const { scrub } = require('./sanitize');
 
 function validate({ body, query, params } = {}) {
   return (req, _res, next) => {
@@ -13,7 +14,7 @@ function validate({ body, query, params } = {}) {
       req.queryData = parsed.data;
     }
     if (params) {
-      const parsed = params.safeParse(req.safeParams || req.params || {});
+      const parsed = params.safeParse(scrub({ ...(req.params || {}), ...(req.safeParams || {}) }));
       if (!parsed.success) return next(new ApiError(400, 'VALIDATION_ERROR', 'Invalid request.', zodDetails(parsed.error)));
       req.paramsData = parsed.data;
     }

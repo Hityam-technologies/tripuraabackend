@@ -15,5 +15,6 @@ router.use('/content', require('./content.routes'));
 router.use('/system-config', require('./systemConfig.routes'));
 router.use('/audit-logs', require('./auditLogs.routes'));
 router.use('/billing', require('./billing.routes'));
+router.use('/', require('./commerce.routes'));
 
 module.exports = router;

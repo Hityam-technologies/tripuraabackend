@@ -1,0 +1,612 @@
+const mongoose = require('mongoose');
+const { ApiError } = require('../utils/ApiError');
+const { pageMeta } = require('../utils/pagination');
+const { presentSaree } = require('../utils/presenters');
+const { recordAudit } = require('./audit.service');
+const Saree = require('../models/Saree');
+const CartItem = require('../models/CartItem');
+const Address = require('../models/Address');
+const Coupon = require('../models/Coupon');
+const ShopOrder = require('../models/ShopOrder');
+const InvoiceCounter = require('../models/InvoiceCounter');
+
+const SHIPPING_FEE = 0;
+const NEXT_STATUS = {
+  CONFIRMED: ['PROCESSING', 'CANCELLED'],
+  PROCESSING: ['IN_TRANSIT', 'CANCELLED'],
+  IN_TRANSIT: ['DELIVERED'],
+  DELIVERED: [],
+  CANCELLED: [],
+};
+
+const DEFAULT_COUPONS = [
+  { code: 'UTSAV10', title: '10% OFF on Heirloom Sarees', subtitle: 'Save 10% on your entire cart subtotal', type: 'percent', value: 0.1, minOrder: 20000, maxDiscount: 10000, icon: 'pricetag-outline' },
+  { code: 'TRIPURAA', title: 'Flat ₹5,000 OFF', subtitle: 'Exclusive celebration discount on bridal wear', type: 'flat', value: 5000, minOrder: 40000, icon: 'ribbon-outline' },
+  { code: 'WELCOME', title: 'Flat ₹2,000 OFF', subtitle: 'Welcome gift for your first Tripuraa Sangrahah drape', type: 'flat', value: 2000, firstOrderOnly: true, icon: 'gift-outline' },
+  { code: 'FESTIVE15', title: '15% Grand Festive Savings', subtitle: 'Valid on authentic handloom silks', type: 'percent', value: 0.15, minOrder: 30000, icon: 'flame-outline' },
+];
+
+function gateway() {
+  const keyId = String(process.env.RAZORPAY_KEY_ID || '').trim();
+  const keySecret = String(process.env.RAZORPAY_KEY_SECRET || '').trim();
+  if (!keyId || !keySecret) return null;
+  return { keyId, keySecret };
+}
+
+async function withTransaction(work) {
+  let session = null;
+  try {
+    session = await mongoose.startSession();
+    let result;
+    await session.withTransaction(async () => {
+      result = await work(session);
+    });
+    return result;
+  } catch (error) {
+    if (error?.code === 20 || /replica set/i.test(String(error?.message || ''))) return work(null);
+    throw error;
+  } finally {
+    if (session) await session.endSession();
+  }
+}
+
+function tie(query, session) {
+  return session ? query.session(session) : query;
+}
+
+async function ensureCoupons() {
+  const count = await Coupon.countDocuments();
+  if (count === 0) await Coupon.insertMany(DEFAULT_COUPONS);
+}
+
+function presentAddress(doc) {
+  return {
+    id: String(doc._id),
+    fullName: doc.fullName,
+    phone: doc.phone,
+    addressLine1: doc.addressLine1,
+    addressLine2: doc.addressLine2 || '',
+    city: doc.city,
+    state: doc.state,
+    postalCode: doc.postalCode,
+    isDefault: Boolean(doc.isDefault),
+  };
+}
+
+function snapshotAddress(doc) {
+  return {
+    fullName: doc.fullName,
+    phone: doc.phone,
+    addressLine1: doc.addressLine1,
+    addressLine2: doc.addressLine2 || '',
+    city: doc.city,
+    state: doc.state,
+    postalCode: doc.postalCode,
+  };
+}
+
+function statusLabel(status) {
+  return {
+    CONFIRMED: 'Order Confirmed',
+    PROCESSING: 'Handcrafted Packaging',
+    IN_TRANSIT: 'Out for Delivery',
+    DELIVERED: 'Delivered',
+    CANCELLED: 'Cancelled',
+  }[status] || status;
+}
+
+function trackingSteps(status) {
+  const steps = [
+    { title: 'Order Placed', desc: 'Received & verified' },
+    { title: 'Order Confirmed', desc: 'Reserved from master weaver' },
+    { title: 'Handcrafted Packaging', desc: 'Quality inspected & boxed' },
+    { title: 'Out for Delivery', desc: 'Insured courier transit' },
+    { title: 'Delivered', desc: 'Doorstep handover' },
+  ];
+  const currentIndex = {
+    CONFIRMED: 2,
+    PROCESSING: 3,
+    IN_TRANSIT: 4,
+    DELIVERED: 5,
+    CANCELLED: -1,
+  }[status];
+  return steps.map((step, index) => ({
+    ...step,
+    completed: status !== 'CANCELLED' && index < currentIndex,
+    current: status !== 'CANCELLED' && index === currentIndex,
+  }));
+}
+
+function presentOrder(order) {
+  return {
+    id: String(order._id),
+    orderNumber: order.orderNumber,
+    createdAt: new Date(order.createdAt).getTime(),
+    dateFormatted: new Date(order.createdAt).toLocaleDateString('en-IN', {
+      day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
+    }),
+    status: order.status,
+    statusLabel: statusLabel(order.status),
+    subtotal: order.subtotal,
+    discountAmount: order.discountAmount,
+    shippingFee: order.shippingFee,
+    totalAmount: order.totalAmount,
+    promoCode: order.promoCode || '',
+    paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus,
+    estimatedDelivery: order.estimatedDelivery,
+    customerName: order.customerName || '',
+    customerPhone: order.customerPhone || '',
+    customerEmail: order.customerEmail || '',
+    items: (order.items || []).map((item) => ({
+      id: item.sareeId,
+      productId: item.sareeId,
+      title: item.title,
+      productCode: item.productCode || '',
+      price: item.price,
+      quantity: item.quantity,
+      image: item.image || null,
+      fabric: item.fabric || '',
+      weave: item.weave || '',
+    })),
+    shippingAddress: order.shippingAddress || {},
+    trackingSteps: trackingSteps(order.status),
+  };
+}
+
+function presentCoupon(coupon) {
+  return {
+    id: String(coupon._id),
+    code: coupon.code,
+    title: coupon.title,
+    subtitle: coupon.subtitle || '',
+    type: coupon.type,
+    value: coupon.value,
+    minOrder: coupon.minOrder || 0,
+    maxDiscount: coupon.maxDiscount ?? null,
+    firstOrderOnly: Boolean(coupon.firstOrderOnly),
+    icon: coupon.icon || 'pricetag-outline',
+    expiresAt: coupon.expiresAt || null,
+    isActive: coupon.isActive !== false,
+  };
+}
+
+async function loadLines(userId, session) {
+  const rows = await tie(CartItem.find({ userId }).sort({ createdAt: 1 }), session);
+  const sarees = await tie(Saree.find({ id: { $in: rows.map((row) => row.sareeId) }, deletedAt: null }), session);
+  const byId = new Map(sarees.map((saree) => [saree.id, saree]));
+  return rows.map((row) => {
+    const saree = byId.get(row.sareeId) || null;
+    const inStock = Boolean(
+      saree && saree.isActive && Number(saree.stockQuantity) > 0 && saree.stockStatus !== 'Out of Stock',
+    );
+    return { row, saree, inStock, quantity: row.quantity };
+  });
+}
+
+function presentCart(lines) {
+  const items = lines.map(({ row, saree, inStock, quantity }) => {
+    const product = saree ? presentSaree(saree) : null;
+    return {
+      id: row.sareeId,
+      productId: row.sareeId,
+      title: saree?.title || 'Unavailable saree',
+      productCode: saree?.productCode || '',
+      price: saree ? saree.price : 0,
+      quantity,
+      image: product?.image || null,
+      fabric: saree?.fabric || '',
+      weave: saree?.weave || '',
+      inStock,
+      product,
+    };
+  });
+  const subtotal = items.filter((item) => item.inStock).reduce((sum, item) => sum + item.price * item.quantity, 0);
+  return {
+    items,
+    cartCount: items.reduce((sum, item) => sum + item.quantity, 0),
+    subtotal,
+    shippingFee: SHIPPING_FEE,
+    currency: 'INR',
+  };
+}
+
+async function getCart(user) {
+  return presentCart(await loadLines(user._id));
+}
+
+async function addItem(user, productId, quantity) {
+  const qty = Math.max(1, Number(quantity) || 1);
+  const saree = await Saree.findOne({ id: productId, deletedAt: null, isActive: true });
+  if (!saree || saree.stockQuantity < 1 || saree.stockStatus === 'Out of Stock') {
+    throw new ApiError(409, 'OUT_OF_STOCK', 'This saree is not available to add.');
+  }
+  const existing = await CartItem.findOne({ userId: user._id, sareeId: productId });
+  const nextQty = (existing?.quantity || 0) + qty;
+  if (nextQty > saree.stockQuantity) {
+    throw new ApiError(409, 'OUT_OF_STOCK', `Only ${saree.stockQuantity} of this saree can be reserved.`);
+  }
+  if (existing) {
+    existing.quantity = nextQty;
+    await existing.save();
+  } else {
+    await CartItem.create({ userId: user._id, sareeId: productId, quantity: nextQty });
+  }
+  return getCart(user);
+}
+
+async function setQuantity(user, productId, quantity) {
+  const qty = Number(quantity);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    await CartItem.deleteOne({ userId: user._id, sareeId: productId });
+    return getCart(user);
+  }
+  const saree = await Saree.findOne({ id: productId, deletedAt: null, isActive: true });
+  if (!saree || qty > saree.stockQuantity) {
+    throw new ApiError(409, 'OUT_OF_STOCK', 'That quantity is no longer available.');
+  }
+  const updated = await CartItem.findOneAndUpdate(
+    { userId: user._id, sareeId: productId },
+    { quantity: qty },
+    { returnDocument: 'after' },
+  );
+  if (!updated) throw new ApiError(404, 'NOT_IN_CART', 'That saree is not in the bag.');
+  return getCart(user);
+}
+
+async function removeItem(user, productId) {
+  await CartItem.deleteOne({ userId: user._id, sareeId: productId });
+  return getCart(user);
+}
+
+async function clearCart(user, session) {
+  const query = CartItem.deleteMany({ userId: user._id });
+  if (session) query.session(session);
+  await query;
+  return presentCart([]);
+}
+
+async function listAddresses(user) {
+  const rows = await Address.find({ userId: user._id }).sort({ isDefault: -1, createdAt: -1 });
+  return rows.map(presentAddress);
+}
+
+async function saveAddress(user, input, addressId) {
+  const payload = {
+    fullName: input.fullName,
+    phone: input.phone,
+    addressLine1: input.addressLine1,
+    addressLine2: input.addressLine2 || '',
+    city: input.city,
+    state: input.state,
+    postalCode: input.postalCode,
+  };
+  let doc = addressId ? await Address.findOne({ _id: addressId, userId: user._id }) : null;
+  if (addressId && !doc) throw new ApiError(404, 'ADDRESS_NOT_FOUND', 'That address was not found.');
+  if (!doc) {
+    const count = await Address.countDocuments({ userId: user._id });
+    doc = await Address.create({
+      ...payload,
+      userId: user._id,
+      isDefault: count === 0 || input.isDefault === true,
+    });
+  } else {
+    Object.assign(doc, payload);
+    if (input.isDefault === true) doc.isDefault = true;
+    await doc.save();
+  }
+  if (doc.isDefault) {
+    await Address.updateMany({ userId: user._id, _id: { $ne: doc._id } }, { isDefault: false });
+  }
+  return presentAddress(doc);
+}
+
+async function removeAddress(user, addressId) {
+  const doc = await Address.findOneAndDelete({ _id: addressId, userId: user._id });
+  if (!doc) throw new ApiError(404, 'ADDRESS_NOT_FOUND', 'That address was not found.');
+  if (doc.isDefault) {
+    const next = await Address.findOne({ userId: user._id }).sort({ createdAt: -1 });
+    if (next) {
+      next.isDefault = true;
+      await next.save();
+    }
+  }
+  return { deleted: true };
+}
+
+async function makeDefault(user, addressId) {
+  const doc = await Address.findOne({ _id: addressId, userId: user._id });
+  if (!doc) throw new ApiError(404, 'ADDRESS_NOT_FOUND', 'That address was not found.');
+  await Address.updateMany({ userId: user._id }, { isDefault: false });
+  doc.isDefault = true;
+  await doc.save();
+  return presentAddress(doc);
+}
+
+function quoteCoupon(coupon, subtotal, priorOrders) {
+  if (!coupon || coupon.isActive === false) return { valid: false, message: 'This coupon is not active.' };
+  if (coupon.expiresAt && new Date(coupon.expiresAt).getTime() < Date.now()) {
+    return { valid: false, message: 'This coupon has expired.' };
+  }
+  const minimum = coupon.minOrder || 0;
+  if (subtotal < minimum) {
+    return { valid: false, message: `This coupon needs an order of at least ₹${minimum.toLocaleString('en-IN')}.` };
+  }
+  if (coupon.firstOrderOnly && priorOrders > 0) {
+    return { valid: false, message: 'This coupon is only for a first order.' };
+  }
+  let discount = coupon.type === 'percent'
+    ? Math.round(subtotal * coupon.value)
+    : Math.min(coupon.value, subtotal);
+  if (coupon.type === 'percent' && coupon.maxDiscount != null) discount = Math.min(discount, coupon.maxDiscount);
+  discount = Math.max(0, Math.min(discount, subtotal));
+  if (discount <= 0) return { valid: false, message: 'This coupon does not change this order.' };
+  return {
+    valid: true,
+    code: coupon.code,
+    discountAmount: discount,
+    finalAmount: subtotal - discount + SHIPPING_FEE,
+    message: 'Coupon applied successfully',
+  };
+}
+
+async function priorOrderCount(userId, session) {
+  const query = ShopOrder.countDocuments({ userId, status: { $ne: 'CANCELLED' } });
+  return session ? query.session(session) : query;
+}
+
+async function listCoupons() {
+  await ensureCoupons();
+  const rows = await Coupon.find({ isActive: true }).sort({ createdAt: 1 });
+  return rows.map(presentCoupon);
+}
+
+async function validateCoupon(user, code) {
+  await ensureCoupons();
+  const cart = await getCart(user);
+  const coupon = await Coupon.findOne({ code: String(code || '').trim().toUpperCase() });
+  if (!coupon) return { valid: false, message: 'This coupon code was not found.' };
+  return { ...quoteCoupon(coupon, cart.subtotal, await priorOrderCount(user._id)), subtotal: cart.subtotal, shippingFee: SHIPPING_FEE };
+}
+
+async function resolveAddress(user, input) {
+  if (input.shippingAddressId) {
+    const found = await Address.findOne({ _id: input.shippingAddressId, userId: user._id });
+    if (!found) throw new ApiError(404, 'ADDRESS_NOT_FOUND', 'Choose a saved delivery address.');
+    return found;
+  }
+  if (input.shippingAddress) {
+    const existing = await Address.findOne({ userId: user._id, isDefault: true });
+    const saved = await saveAddress(user, { ...input.shippingAddress, isDefault: true }, existing?._id);
+    return Address.findById(saved.id);
+  }
+  const fallback = await Address.findOne({ userId: user._id, isDefault: true });
+  if (!fallback) throw new ApiError(400, 'ADDRESS_REQUIRED', 'Add a delivery address before placing the order.');
+  return fallback;
+}
+
+async function nextOrderNumber(session) {
+  const options = { upsert: true, returnDocument: 'after' };
+  if (session) options.session = session;
+  const counter = await InvoiceCounter.findOneAndUpdate({ key: 'shop-order' }, { $inc: { seq: 1 } }, options);
+  return `TS-${String(10000 + counter.seq)}`;
+}
+
+async function takeStock(lines, session) {
+  for (const line of lines) {
+    if (!line.inStock || !line.saree) {
+      throw new ApiError(409, 'OUT_OF_STOCK', 'A saree in the bag is no longer available.');
+    }
+    const options = { returnDocument: 'after' };
+    if (session) options.session = session;
+    const updated = await Saree.findOneAndUpdate(
+      { id: line.saree.id, stockQuantity: { $gte: line.quantity }, deletedAt: null },
+      { $inc: { stockQuantity: -line.quantity } },
+      options,
+    );
+    if (!updated) throw new ApiError(409, 'OUT_OF_STOCK', `${line.saree.title} does not have enough pieces left.`);
+    if (updated.stockQuantity <= 0) {
+      updated.stockStatus = 'Out of Stock';
+      await updated.save(session ? { session } : undefined);
+    }
+  }
+}
+
+async function restoreStock(items, session) {
+  for (const item of items) {
+    await Saree.updateOne(
+      { id: item.sareeId },
+      { $inc: { stockQuantity: item.quantity }, $set: { stockStatus: 'In Stock' } },
+      session ? { session } : undefined,
+    );
+  }
+}
+
+async function placeOrder(user, input) {
+  if (input.paymentMethod === 'ONLINE') {
+    if (!gateway()) {
+      throw new ApiError(503, 'PAYMENT_UNAVAILABLE', 'Online payment is not set up yet. Place this order as cash on delivery.');
+    }
+    throw new ApiError(409, 'PAYMENT_REQUIRED', 'Online payment has to be verified before the order is placed.');
+  }
+  const addressDoc = await resolveAddress(user, input);
+  if (input.promoCode) await ensureCoupons();
+  return withTransaction(async (session) => {
+    const lines = (await loadLines(user._id, session)).filter((line) => line.inStock);
+    if (!lines.length) throw new ApiError(400, 'CART_EMPTY', 'Add a saree before placing an order.');
+    const subtotal = lines.reduce((sum, line) => sum + line.saree.price * line.quantity, 0);
+    let discountAmount = 0;
+    let promoCode = '';
+    if (input.promoCode) {
+      const coupon = await Coupon.findOne({ code: String(input.promoCode).trim().toUpperCase(), isActive: true });
+      const quote = quoteCoupon(coupon, subtotal, await priorOrderCount(user._id, session));
+      if (!quote.valid) throw new ApiError(400, 'COUPON_REJECTED', quote.message);
+      discountAmount = quote.discountAmount;
+      promoCode = quote.code;
+    }
+    await takeStock(lines, session);
+    const created = await ShopOrder.create([{
+      orderNumber: await nextOrderNumber(session),
+      userId: user._id,
+      customerName: user.fullName || addressDoc.fullName,
+      customerPhone: user.phone || addressDoc.phone,
+      customerEmail: user.email || '',
+      status: 'CONFIRMED',
+      items: lines.map((line) => ({
+        sareeId: line.saree.id,
+        title: line.saree.title,
+        productCode: line.saree.productCode || '',
+        price: line.saree.price,
+        quantity: line.quantity,
+        image: presentSaree(line.saree).image || '',
+        fabric: line.saree.fabric || '',
+        weave: line.saree.weave || '',
+      })),
+      subtotal,
+      discountAmount,
+      shippingFee: SHIPPING_FEE,
+      totalAmount: Math.max(0, subtotal - discountAmount),
+      promoCode,
+      paymentMethod: 'COD',
+      paymentStatus: 'PAY_ON_DELIVERY',
+      shippingAddress: snapshotAddress(addressDoc),
+    }], session ? { session } : undefined);
+    await clearCart(user, session);
+    return presentOrder(created[0]);
+  });
+}
+
+async function listOrders(user) {
+  const rows = await ShopOrder.find({ userId: user._id }).sort({ createdAt: -1 }).limit(50);
+  return rows.map(presentOrder);
+}
+
+async function getOrder(user, orderId) {
+  const order = await ShopOrder.findOne({ _id: orderId, userId: user._id });
+  if (!order) throw new ApiError(404, 'ORDER_NOT_FOUND', 'That order was not found.');
+  return presentOrder(order);
+}
+
+async function cancelOrder(user, orderId) {
+  return withTransaction(async (session) => {
+    const order = await tie(ShopOrder.findOne({ _id: orderId, userId: user._id }), session);
+    if (!order) throw new ApiError(404, 'ORDER_NOT_FOUND', 'That order was not found.');
+    if (!['CONFIRMED', 'PROCESSING'].includes(order.status)) {
+      throw new ApiError(409, 'CANNOT_CANCEL', 'This order can no longer be cancelled.');
+    }
+    await restoreStock(order.items, session);
+    order.status = 'CANCELLED';
+    order.cancelledAt = new Date();
+    await order.save(session ? { session } : undefined);
+    return presentOrder(order);
+  });
+}
+
+async function adminList(query) {
+  const page = query.page || 1;
+  const limit = query.limit || 20;
+  const filter = {};
+  if (query.status && query.status !== 'all') filter.status = query.status;
+  if (query.search) {
+    const term = String(query.search).trim().slice(0, 80).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    filter.$or = ['orderNumber', 'customerName', 'customerPhone', 'customerEmail'].map((field) => ({
+      [field]: new RegExp(term, 'i'),
+    }));
+  }
+  const [rows, total] = await Promise.all([
+    ShopOrder.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
+    ShopOrder.countDocuments(filter),
+  ]);
+  return { items: rows.map(presentOrder), ...pageMeta(page, limit, total) };
+}
+
+async function adminGet(orderId) {
+  const order = await ShopOrder.findById(orderId);
+  if (!order) throw new ApiError(404, 'ORDER_NOT_FOUND', 'That order was not found.');
+  return presentOrder(order);
+}
+
+async function adminSetStatus(orderId, status, actor, meta) {
+  return withTransaction(async (session) => {
+    const order = await tie(ShopOrder.findById(orderId), session);
+    if (!order) throw new ApiError(404, 'ORDER_NOT_FOUND', 'That order was not found.');
+    if (!NEXT_STATUS[order.status].includes(status)) {
+      throw new ApiError(409, 'INVALID_STATUS', `An order that is ${statusLabel(order.status)} cannot move to ${statusLabel(status)}.`);
+    }
+    const before = order.status;
+    if (status === 'CANCELLED') await restoreStock(order.items, session);
+    if (status === 'DELIVERED' && order.paymentMethod === 'COD') order.paymentStatus = 'PAID';
+    order.status = status;
+    if (status === 'CANCELLED') order.cancelledAt = new Date();
+    await order.save(session ? { session } : undefined);
+    await recordAudit({
+      action: 'ORDER_STATUS',
+      resource: 'shop-order',
+      resourceId: String(order._id),
+      before: { status: before },
+      after: { status },
+      description: `${order.orderNumber} moved to ${statusLabel(status)}`,
+      actorId: actor?.id || '',
+      actorName: actor?.name || 'Admin',
+      ip: meta?.ip || '',
+      userAgent: meta?.userAgent || '',
+    });
+    return presentOrder(order);
+  });
+}
+
+async function adminCoupons() {
+  await ensureCoupons();
+  return (await Coupon.find().sort({ createdAt: 1 })).map(presentCoupon);
+}
+
+function normalizeCoupon(input) {
+  const type = input.type;
+  let value = Number(input.value);
+  if (type === 'percent') value = value > 1 ? value / 100 : value;
+  if (!Number.isFinite(value) || value < 0) throw new ApiError(400, 'INVALID_COUPON', 'Enter a coupon value.');
+  if (type === 'percent' && (value <= 0 || value > 0.9)) {
+    throw new ApiError(400, 'INVALID_COUPON', 'A percent coupon must be between 1 and 90.');
+  }
+  return {
+    code: String(input.code || '').trim().toUpperCase(),
+    title: input.title,
+    subtitle: input.subtitle || '',
+    type,
+    value,
+    minOrder: Number(input.minOrder) || 0,
+    maxDiscount: input.maxDiscount == null || input.maxDiscount === '' ? null : Number(input.maxDiscount),
+    firstOrderOnly: Boolean(input.firstOrderOnly),
+    icon: input.icon || 'pricetag-outline',
+    isActive: input.isActive !== false,
+  };
+}
+
+async function saveCoupon(input, couponId) {
+  const payload = normalizeCoupon(input);
+  if (!payload.code || !payload.title) throw new ApiError(400, 'INVALID_COUPON', 'A coupon needs a code and a title.');
+  if (couponId) {
+    const doc = await Coupon.findByIdAndUpdate(couponId, payload, { returnDocument: 'after' });
+    if (!doc) throw new ApiError(404, 'COUPON_NOT_FOUND', 'That coupon was not found.');
+    return presentCoupon(doc);
+  }
+  return presentCoupon(await Coupon.create(payload));
+}
+
+async function setCouponActive(couponId, isActive) {
+  const doc = await Coupon.findByIdAndUpdate(couponId, { isActive }, { returnDocument: 'after' });
+  if (!doc) throw new ApiError(404, 'COUPON_NOT_FOUND', 'That coupon was not found.');
+  return presentCoupon(doc);
+}
+
+function paymentAvailability() {
+  return { onlineEnabled: Boolean(gateway()), gateway: gateway() ? 'RAZORPAY' : null };
+}
+
+module.exports = {
+  getCart, addItem, setQuantity, removeItem, clearCart,
+  listAddresses, saveAddress, removeAddress, makeDefault,
+  listCoupons, validateCoupon, placeOrder, listOrders, getOrder, cancelOrder,
+  adminList, adminGet, adminSetStatus, adminCoupons, saveCoupon, setCouponActive,
+  paymentAvailability,
+};

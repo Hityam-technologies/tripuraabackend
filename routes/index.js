@@ -16,10 +16,15 @@ router.get('/legal/:slug', publicApi.legal);
 router.use('/auth', require('./public/auth.routes'));
 router.use('/', require('./public/catalog.routes'));
 router.use('/try-on', require('./user/tryOn.routes'));
+router.use('/users', require('./user/address.routes'));
 router.use('/users', require('./user/profile.routes'));
+router.use('/cart', require('./user/cart.routes'));
+router.use('/promotions', require('./user/promotion.routes'));
+router.use('/payments', require('./user/payment.routes'));
 router.use('/users', require('./user/wishlist.routes'));
 router.use('/users', require('./user/enquiry.routes'));
 router.post('/orders/enquiry', authUser, validate({ body: enquiryCreateSchema }), enquiry.create);
+router.use('/orders', require('./user/order.routes'));
 router.use('/billing', require('./billing'));
 router.use('/admin', require('./admin'));
 
