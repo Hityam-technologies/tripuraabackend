@@ -19,6 +19,14 @@ const tryOnJobSchema = new mongoose.Schema(
     errorMessage: { type: String, default: '' },
     outputKey: { type: String, default: '' },
     creditsUsed: { type: Number, default: 0 },
+    fashnCreditsUsed: { type: Number, default: null },
+    fashnCreditsKnown: { type: Boolean, default: false },
+    customerBucket: { type: String, enum: ['FREE', 'PAID', 'NONE', 'UNKNOWN'], default: 'UNKNOWN' },
+    cacheHit: { type: Boolean, default: false },
+    usageSettled: { type: Boolean, default: false },
+    parameters: { type: mongoose.Schema.Types.Mixed, default: null },
+    ip: { type: String, default: '', maxlength: 64 },
+    userAgent: { type: String, default: '', maxlength: 240 },
     requestHash: { type: String, required: true, index: true },
     startedAt: { type: Date },
     completedAt: { type: Date },
@@ -26,5 +34,9 @@ const tryOnJobSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+tryOnJobSchema.index({ userId: 1, status: 1, createdAt: -1 });
+tryOnJobSchema.index({ userId: 1, cacheHit: 1, createdAt: -1 });
+tryOnJobSchema.index({ ip: 1, customerBucket: 1, status: 1 });
 
 module.exports = mongoose.model('TryOnJob', tryOnJobSchema);

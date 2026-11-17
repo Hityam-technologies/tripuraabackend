@@ -45,6 +45,7 @@ function createApp() {
   app.set('jobRunner', runtime.runner);
   app.set('tryOnProvider', runtime.provider);
   if (env.NODE_ENV !== 'test' && env.tryOnProvider !== 'disabled') runtime.runner.start();
+  if (env.NODE_ENV !== 'test') require('./services/tryon/usage.service').startReconcileSchedule();
 
   app.get('/', (_req, res) => {
     res.status(200).json({ success: true, data: { service: 'tripuraa-api' } });

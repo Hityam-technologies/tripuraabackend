@@ -21,6 +21,11 @@ const systemConfigSchema = new mongoose.Schema(
     tryOnModel: { type: String, enum: ['tryon-v1.6', 'tryon-max'], default: 'tryon-v1.6' },
     gstRate: { type: Number, default: 5, min: 0, max: 100 },
     gstInclusive: { type: Boolean, default: true },
+    fashnRupeesPerCreditPaise: { type: Number, default: null },
+    fashnRateAsOf: { type: Date, default: null },
+    freeTryOnQuota: { type: Number, default: 3, min: 0, max: 100 },
+    paidTryOnPricePaise: { type: Number, default: 2000, min: 0 },
+    tryOnChargeEnforced: { type: Boolean, default: false },
   },
   { timestamps: true },
 );

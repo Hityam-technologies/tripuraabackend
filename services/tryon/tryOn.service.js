@@ -10,6 +10,7 @@ const TryOnJob = require('../../models/TryOnJob');
 const SavedTryOnLook = require('../../models/SavedTryOnLook');
 const Saree = require('../../models/Saree');
 const User = require('../../models/User');
+const usage = require('./usage.service');
 
 let runner = null;
 
@@ -75,7 +76,7 @@ async function deleteProfile(user, id) {
   return { id };
 }
 
-async function generate(user, { sareeId, drapeProfileId }) {
+async function generate(user, { sareeId, drapeProfileId }, meta = {}) {
   if (getEnv().tryOnProvider === 'disabled') {
     throw new ApiError(503, 'TRYON_UNAVAILABLE', 'Virtual try-on is not available right now.');
   }
@@ -85,12 +86,21 @@ async function generate(user, { sareeId, drapeProfileId }) {
 
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
-  const usedToday = await TryOnJob.countDocuments({ userId: user._id, createdAt: { $gte: startOfDay } });
+  const usedToday = await TryOnJob.countDocuments({
+    userId: user._id,
+    createdAt: { $gte: startOfDay },
+    cacheHit: { $ne: true },
+    status: { $nin: ['failed', 'canceled', 'timed_out'] },
+  });
   if (usedToday >= configDoc.tryOnDailyLimitPerUser) {
     throw new ApiError(429, 'TRYON_QUOTA', 'You have reached today’s try-on limit.');
   }
   const since = new Date(Date.now() - (configDoc.tryOnUserRateWindowMs || 600000));
-  const recent = await TryOnJob.countDocuments({ userId: user._id, createdAt: { $gte: since } });
+  const recent = await TryOnJob.countDocuments({
+    userId: user._id,
+    createdAt: { $gte: since },
+    cacheHit: { $ne: true },
+  });
   if (recent >= (configDoc.tryOnUserRateMax || 8)) {
     throw new ApiError(429, 'RATE_LIMITED', 'Please wait a moment before starting another drape.');
   }
@@ -102,11 +112,46 @@ async function generate(user, { sareeId, drapeProfileId }) {
 
   const model = configDoc.tryOnModel || getEnv().FASHN_MODEL;
   const requestHash = sha256(`${user._id}|${sareeId}|${profile.imageHash}|${model}`);
-  const cached = await TryOnJob.findOne({ userId: user._id, requestHash, status: 'completed' });
+  const parameters = { model, category: 'one-pieces', mode: 'balanced', numSamples: 1, outputFormat: 'jpeg' };
+  const cached = await TryOnJob.findOne({
+    userId: user._id,
+    requestHash,
+    status: 'completed',
+    cacheHit: { $ne: true },
+  });
   if (cached) {
-    return { statusCode: 200, body: { jobId: String(cached._id), status: 'completed', cached: true } };
+    const hit = await TryOnJob.create({
+      userId: user._id,
+      sareeId,
+      drapeProfileId: profile._id,
+      provider: getEnv().tryOnProvider,
+      providerModel: model,
+      status: 'completed',
+      requestHash,
+      cacheHit: true,
+      customerBucket: 'NONE',
+      fashnCreditsUsed: 0,
+      fashnCreditsKnown: true,
+      usageSettled: true,
+      creditsUsed: 0,
+      parameters,
+      ip: meta.ip || '',
+      userAgent: String(meta.userAgent || '').slice(0, 240),
+      completedAt: new Date(),
+    });
+    await usage.recordCacheHit({ user, job: hit });
+    return {
+      statusCode: 200,
+      body: {
+        jobId: String(cached._id),
+        status: 'completed',
+        cached: true,
+        wallet: await usage.customerWallet(user),
+      },
+    };
   }
 
+  const reservation = await usage.reserve(user);
   const job = await TryOnJob.create({
     userId: user._id,
     sareeId,
@@ -115,9 +160,21 @@ async function generate(user, { sareeId, drapeProfileId }) {
     providerModel: model,
     status: 'queued',
     requestHash,
+    customerBucket: reservation.bucket,
+    parameters,
+    ip: meta.ip || '',
+    userAgent: String(meta.userAgent || '').slice(0, 240),
+    fashnCreditsKnown: false,
   });
   getRunner().tick().catch(() => null);
-  return { statusCode: 202, body: { jobId: String(job._id), status: job.status } };
+  return {
+    statusCode: 202,
+    body: {
+      jobId: String(job._id),
+      status: job.status,
+      wallet: await usage.customerWallet(user),
+    },
+  };
 }
 
 async function presentJob(job) {
@@ -212,12 +269,7 @@ async function handleWebhook(payload) {
   if (payload.status === 'canceled' || payload.status === 'time_out') {
     const { mapTerminalStatus } = require('./errorMapper');
     const terminal = mapTerminalStatus(payload.status);
-    await TryOnJob.updateOne({ _id: job._id, status: { $in: ['queued', 'processing'] } }, {
-      status: terminal.status,
-      errorCode: terminal.code,
-      errorMessage: terminal.message,
-      completedAt: new Date(),
-    });
+    await active.fail(job._id, terminal.code, terminal.message, terminal.status);
   }
   return { ok: true };
 }
@@ -236,8 +288,8 @@ async function adminJobs(query) {
     TryOnJob.countDocuments(filter),
     TryOnJob.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
     TryOnJob.aggregate([
-      { $match: { createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) } } },
-      { $group: { _id: null, credits: { $sum: '$creditsUsed' } } },
+      { $match: { createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }, fashnCreditsKnown: true } },
+      { $group: { _id: null, credits: { $sum: '$fashnCreditsUsed' } } },
     ]),
   ]);
   const sarees = await Saree.find({ id: { $in: rows.map((row) => row.sareeId) } }).select('id title').lean();

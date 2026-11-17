@@ -9,6 +9,13 @@ function fashnMock(sequence) {
     return {
       ok: payload.status >= 200 && payload.status < 300,
       status: payload.status,
+      headers: {
+        get(name) {
+          const headers = payload.headers || {};
+          const value = headers[String(name || '').toLowerCase()];
+          return value == null ? null : String(value);
+        },
+      },
       text: async () => JSON.stringify(payload.body || {}),
     };
   });

@@ -49,11 +49,15 @@ class FashnProvider {
       const mapped = mapRuntimeError(body.error);
       return { status: 'failed', error: { name: body.error.name, code: mapped.code, message: mapped.message }, retry: false };
     }
+    const headerKnown = result.creditsKnown === true;
+    const bodyCredits = Number(body.creditsUsed);
+    const known = headerKnown || Number.isFinite(bodyCredits);
     return {
       status: body.status,
       output: body.output,
       error: body.error,
-      creditsUsed: body.creditsUsed,
+      creditsUsed: headerKnown ? result.creditsUsed : (Number.isFinite(bodyCredits) ? bodyCredits : null),
+      creditsKnown: known,
     };
   }
 

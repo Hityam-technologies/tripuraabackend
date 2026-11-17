@@ -36,12 +36,24 @@ class FashnClient {
           json = { message: 'Unreadable provider response' };
         }
       }
+      const headerRaw = typeof response.headers?.get === 'function'
+        ? response.headers.get('x-fashn-credits-used')
+        : null;
+      const headerCredits = headerRaw == null || headerRaw === '' ? null : Number(headerRaw);
+      const creditsKnown = Number.isFinite(headerCredits);
       logger.info('fashn response', {
         path: path.split('?')[0],
         status: response.status,
         ms: Date.now() - started,
+        creditsKnown,
       });
-      return { ok: response.ok, status: response.status, body: json };
+      return {
+        ok: response.ok,
+        status: response.status,
+        body: json,
+        creditsUsed: creditsKnown ? headerCredits : null,
+        creditsKnown,
+      };
     } catch (error) {
       logger.warn('fashn network error', { path: path.split('?')[0], name: error.name });
       return { ok: false, status: 0, body: { error: 'NetworkError', message: 'network' }, network: true };

@@ -68,6 +68,12 @@ async function verifyRegistration({ email, code }, meta) {
   user.isEmailVerified = true;
   user.lastLoginAt = new Date();
   await user.save();
+  try {
+    const { openWallet } = require('./tryon/usage.service');
+    await openWallet(user);
+  } catch {
+    // The account is already verified. The wallet is created again on the first try-on.
+  }
   const tokens = await issueRefresh({
     subjectId: user._id,
     subjectType: 'user',

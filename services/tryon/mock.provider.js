@@ -25,6 +25,7 @@ class MockProvider {
       output: [`data:image/jpeg;base64,${TINY_JPEG}`],
       error: null,
       creditsUsed: 0,
+      creditsKnown: true,
     };
   }
 

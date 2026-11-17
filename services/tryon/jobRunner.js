@@ -207,22 +207,12 @@ class JobRunner {
       }
       const terminal = mapTerminalStatus(snapshot.status);
       if (terminal) {
-        await TryOnJob.updateOne({ _id: current._id, status: 'processing' }, {
-          status: terminal.status,
-          errorCode: terminal.code,
-          errorMessage: terminal.message,
-          completedAt: new Date(),
-        });
+        await this.fail(current._id, terminal.code, terminal.message, terminal.status);
         return;
       }
       await sleep(wait);
     }
-    await TryOnJob.updateOne({ _id: job._id, status: 'processing' }, {
-      status: 'timed_out',
-      errorCode: 'TRYON_UNAVAILABLE',
-      errorMessage: 'The drape took too long. Please try again.',
-      completedAt: new Date(),
-    });
+    await this.fail(job._id, 'TRYON_UNAVAILABLE', 'The drape took too long. Please try again.', 'timed_out');
   }
 
   async complete(job, snapshot) {
@@ -236,18 +226,22 @@ class JobRunner {
         extension: 'jpg',
         contentType: 'image/jpeg',
       });
-      const credits = Number.isFinite(Number(snapshot.creditsUsed))
-        ? Number(snapshot.creditsUsed)
-        : (this.provider.name === 'mock' ? 0 : (fresh.providerModel === 'tryon-max' ? 2 : 1));
+      const explicit = Number(snapshot.creditsUsed);
+      const known = snapshot.creditsKnown === true || (snapshot.creditsKnown !== false && Number.isFinite(explicit));
+      const credits = known ? explicit : null;
       const latency = fresh.startedAt ? Date.now() - new Date(fresh.startedAt).getTime() : 0;
       fresh.status = 'completed';
       fresh.outputKey = stored.key;
-      fresh.creditsUsed = credits;
+      fresh.creditsUsed = known ? credits : 0;
+      fresh.fashnCreditsUsed = known ? credits : null;
+      fresh.fashnCreditsKnown = known;
       fresh.providerLatencyMs = latency;
       fresh.completedAt = new Date();
       fresh.errorCode = '';
       fresh.errorMessage = '';
       await fresh.save();
+      const { consume } = require('./usage.service');
+      await consume(fresh);
       logger.info('try-on completed', {
         jobId: String(fresh._id),
         model: fresh.providerModel,
@@ -261,12 +255,17 @@ class JobRunner {
     }
   }
 
-  async fail(id, code, message) {
+  async fail(id, code, message, status = 'failed') {
     try {
-      await TryOnJob.updateOne(
+      const updated = await TryOnJob.findOneAndUpdate(
         { _id: id, status: { $in: ['queued', 'processing'] } },
-        { status: 'failed', errorCode: code, errorMessage: message, completedAt: new Date() },
+        { status, errorCode: code, errorMessage: message, completedAt: new Date() },
+        { returnDocument: 'after' },
       );
+      if (updated) {
+        const { release } = require('./usage.service');
+        await release(updated);
+      }
     } catch (error) {
       logger.warn('try-on fail skipped', { message: error.message });
     }
