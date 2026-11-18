@@ -5,7 +5,7 @@ const { presentSaree } = require('../utils/presenters');
 const { recordAudit } = require('./audit.service');
 const Saree = require('../models/Saree');
 const CartItem = require('../models/CartItem');
-const Address = require('../models/Address');
+const User = require('../models/User');
 const Coupon = require('../models/Coupon');
 const ShopOrder = require('../models/ShopOrder');
 const InvoiceCounter = require('../models/InvoiceCounter');
@@ -59,30 +59,85 @@ async function ensureCoupons() {
   if (count === 0) await Coupon.insertMany(DEFAULT_COUPONS);
 }
 
-function presentAddress(doc) {
+function addressFields(input) {
   return {
-    id: String(doc._id),
-    fullName: doc.fullName,
-    phone: doc.phone,
-    addressLine1: doc.addressLine1,
-    addressLine2: doc.addressLine2 || '',
-    city: doc.city,
-    state: doc.state,
-    postalCode: doc.postalCode,
-    isDefault: Boolean(doc.isDefault),
+    fullName: input.fullName,
+    phone: input.phone,
+    addressLine1: input.addressLine1,
+    addressLine2: input.addressLine2 || '',
+    city: input.city,
+    state: input.state,
+    postalCode: input.postalCode,
   };
 }
 
-function snapshotAddress(doc) {
+function presentAddress(user) {
+  const doc = user?.address;
+  if (!doc || !String(doc.addressLine1 || '').trim()) return null;
   return {
-    fullName: doc.fullName,
-    phone: doc.phone,
+    id: String(user._id),
+    fullName: doc.fullName || user.fullName,
+    phone: doc.phone || user.phone,
     addressLine1: doc.addressLine1,
     addressLine2: doc.addressLine2 || '',
     city: doc.city,
     state: doc.state,
     postalCode: doc.postalCode,
+    isDefault: true,
   };
+}
+
+function snapshotAddress(user) {
+  const shown = presentAddress(user);
+  if (!shown) return null;
+  return {
+    fullName: shown.fullName,
+    phone: shown.phone,
+    addressLine1: shown.addressLine1,
+    addressLine2: shown.addressLine2,
+    city: shown.city,
+    state: shown.state,
+    postalCode: shown.postalCode,
+  };
+}
+
+async function dropLegacyAddresses(userId) {
+  await mongoose.connection.collection('addresses').deleteMany({ userId });
+}
+
+async function moveLegacyAddressesOntoCustomers() {
+  const collection = mongoose.connection.collection('addresses');
+  const rows = await collection.find({}).sort({ isDefault: -1, createdAt: -1 }).toArray();
+  const seen = new Set();
+  for (const row of rows) {
+    const key = String(row.userId || '');
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const customer = await User.findById(row.userId);
+    if (customer && !customer.address?.addressLine1 && row.addressLine1) {
+      customer.address = addressFields(row);
+      customer.markModified('address');
+      await customer.save();
+    }
+    await collection.deleteMany({ userId: row.userId });
+  }
+}
+
+async function loadCustomer(user) {
+  const fresh = await User.findById(user._id);
+  if (!fresh) throw new ApiError(404, 'RESOURCE_NOT_FOUND', 'Account not found.');
+  if (fresh.address?.addressLine1) return fresh;
+  const legacy = await mongoose.connection.collection('addresses')
+    .find({ userId: fresh._id })
+    .sort({ isDefault: -1, createdAt: -1 })
+    .limit(1)
+    .next();
+  if (!legacy?.addressLine1) return fresh;
+  fresh.address = addressFields(legacy);
+  fresh.markModified('address');
+  await fresh.save();
+  await dropLegacyAddresses(fresh._id);
+  return fresh;
 }
 
 function statusLabel(status) {
@@ -267,60 +322,34 @@ async function clearCart(user, session) {
 }
 
 async function listAddresses(user) {
-  const rows = await Address.find({ userId: user._id }).sort({ isDefault: -1, createdAt: -1 });
-  return rows.map(presentAddress);
+  const customer = await loadCustomer(user);
+  const row = presentAddress(customer);
+  return row ? [row] : [];
 }
 
-async function saveAddress(user, input, addressId) {
-  const payload = {
-    fullName: input.fullName,
-    phone: input.phone,
-    addressLine1: input.addressLine1,
-    addressLine2: input.addressLine2 || '',
-    city: input.city,
-    state: input.state,
-    postalCode: input.postalCode,
-  };
-  let doc = addressId ? await Address.findOne({ _id: addressId, userId: user._id }) : null;
-  if (addressId && !doc) throw new ApiError(404, 'ADDRESS_NOT_FOUND', 'That address was not found.');
-  if (!doc) {
-    const count = await Address.countDocuments({ userId: user._id });
-    doc = await Address.create({
-      ...payload,
-      userId: user._id,
-      isDefault: count === 0 || input.isDefault === true,
-    });
-  } else {
-    Object.assign(doc, payload);
-    if (input.isDefault === true) doc.isDefault = true;
-    await doc.save();
-  }
-  if (doc.isDefault) {
-    await Address.updateMany({ userId: user._id, _id: { $ne: doc._id } }, { isDefault: false });
-  }
-  return presentAddress(doc);
+async function saveAddress(user, input) {
+  const customer = await User.findById(user._id);
+  if (!customer) throw new ApiError(404, 'RESOURCE_NOT_FOUND', 'Account not found.');
+  customer.address = addressFields(input);
+  customer.markModified('address');
+  await customer.save();
+  await dropLegacyAddresses(customer._id);
+  return presentAddress(customer);
 }
 
-async function removeAddress(user, addressId) {
-  const doc = await Address.findOneAndDelete({ _id: addressId, userId: user._id });
-  if (!doc) throw new ApiError(404, 'ADDRESS_NOT_FOUND', 'That address was not found.');
-  if (doc.isDefault) {
-    const next = await Address.findOne({ userId: user._id }).sort({ createdAt: -1 });
-    if (next) {
-      next.isDefault = true;
-      await next.save();
-    }
-  }
+async function removeAddress(user) {
+  const customer = await loadCustomer(user);
+  if (!presentAddress(customer)) throw new ApiError(404, 'ADDRESS_NOT_FOUND', 'That address was not found.');
+  await User.updateOne({ _id: customer._id }, { $unset: { address: 1 } });
+  await dropLegacyAddresses(customer._id);
   return { deleted: true };
 }
 
-async function makeDefault(user, addressId) {
-  const doc = await Address.findOne({ _id: addressId, userId: user._id });
-  if (!doc) throw new ApiError(404, 'ADDRESS_NOT_FOUND', 'That address was not found.');
-  await Address.updateMany({ userId: user._id }, { isDefault: false });
-  doc.isDefault = true;
-  await doc.save();
-  return presentAddress(doc);
+async function makeDefault(user) {
+  const customer = await loadCustomer(user);
+  const row = presentAddress(customer);
+  if (!row) throw new ApiError(404, 'ADDRESS_NOT_FOUND', 'That address was not found.');
+  return row;
 }
 
 function quoteCoupon(coupon, subtotal, priorOrders) {
@@ -370,19 +399,14 @@ async function validateCoupon(user, code) {
 }
 
 async function resolveAddress(user, input) {
-  if (input.shippingAddressId) {
-    const found = await Address.findOne({ _id: input.shippingAddressId, userId: user._id });
-    if (!found) throw new ApiError(404, 'ADDRESS_NOT_FOUND', 'Choose a saved delivery address.');
-    return found;
-  }
   if (input.shippingAddress) {
-    const existing = await Address.findOne({ userId: user._id, isDefault: true });
-    const saved = await saveAddress(user, { ...input.shippingAddress, isDefault: true }, existing?._id);
-    return Address.findById(saved.id);
+    await saveAddress(user, input.shippingAddress);
   }
-  const fallback = await Address.findOne({ userId: user._id, isDefault: true });
-  if (!fallback) throw new ApiError(400, 'ADDRESS_REQUIRED', 'Add a delivery address before placing the order.');
-  return fallback;
+  const customer = await loadCustomer(user);
+  if (!snapshotAddress(customer)) {
+    throw new ApiError(400, 'ADDRESS_REQUIRED', 'Add a delivery address before placing the order.');
+  }
+  return customer;
 }
 
 async function nextOrderNumber(session) {
@@ -430,6 +454,7 @@ async function placeOrder(user, input) {
     throw new ApiError(409, 'PAYMENT_REQUIRED', 'Online payment has to be verified before the order is placed.');
   }
   const addressDoc = await resolveAddress(user, input);
+  const shippingAddress = snapshotAddress(addressDoc);
   if (input.promoCode) await ensureCoupons();
   return withTransaction(async (session) => {
     const lines = (await loadLines(user._id, session)).filter((line) => line.inStock);
@@ -448,8 +473,8 @@ async function placeOrder(user, input) {
     const created = await ShopOrder.create([{
       orderNumber: await nextOrderNumber(session),
       userId: user._id,
-      customerName: user.fullName || addressDoc.fullName,
-      customerPhone: user.phone || addressDoc.phone,
+      customerName: shippingAddress.fullName || user.fullName,
+      customerPhone: shippingAddress.phone || user.phone,
       customerEmail: user.email || '',
       status: 'CONFIRMED',
       items: lines.map((line) => ({
@@ -469,7 +494,7 @@ async function placeOrder(user, input) {
       promoCode,
       paymentMethod: 'COD',
       paymentStatus: 'PAY_ON_DELIVERY',
-      shippingAddress: snapshotAddress(addressDoc),
+      shippingAddress,
     }], session ? { session } : undefined);
     await clearCart(user, session);
     return presentOrder(created[0]);
@@ -607,6 +632,7 @@ module.exports = {
   getCart, addItem, setQuantity, removeItem, clearCart,
   listAddresses, saveAddress, removeAddress, makeDefault,
   listCoupons, validateCoupon, placeOrder, listOrders, getOrder, cancelOrder,
+  moveLegacyAddressesOntoCustomers,
   adminList, adminGet, adminSetStatus, adminCoupons, saveCoupon, setCouponActive,
   paymentAvailability,
 };

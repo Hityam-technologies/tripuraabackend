@@ -1,5 +1,18 @@
 const mongoose = require('mongoose');
 
+const deliveryAddressSchema = new mongoose.Schema(
+  {
+    fullName: { type: String, trim: true, maxlength: 80 },
+    phone: { type: String, trim: true, maxlength: 24 },
+    addressLine1: { type: String, trim: true, maxlength: 160 },
+    addressLine2: { type: String, trim: true, maxlength: 160 },
+    city: { type: String, trim: true, maxlength: 80 },
+    state: { type: String, trim: true, maxlength: 80 },
+    postalCode: { type: String, trim: true, maxlength: 12 },
+  },
+  { _id: false },
+);
+
 const userSchema = new mongoose.Schema(
   {
     fullName: { type: String, required: true, trim: true },
@@ -12,6 +25,7 @@ const userSchema = new mongoose.Schema(
     blockedReason: { type: String, default: '' },
     lastLoginAt: { type: Date },
     deletedAt: { type: Date, default: null },
+    address: { type: deliveryAddressSchema },
   },
   { timestamps: true },
 );

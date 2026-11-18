@@ -57,6 +57,7 @@ async function deleteMe(user) {
   user.fullName = 'Deleted user';
   user.avatarUrl = '';
   await user.save();
+  await User.updateOne({ _id: user._id }, { $unset: { address: 1 } });
 }
 
 async function currentWishlist(userIds) {
