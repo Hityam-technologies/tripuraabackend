@@ -23,4 +23,14 @@ const walletTransactionSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+// One signup bonus per customer, and one friend reward per order.
+walletTransactionSchema.index(
+  { userId: 1, source: 1 },
+  { unique: true, partialFilterExpression: { source: 'REFERRAL_SIGNUP_BONUS' } },
+);
+walletTransactionSchema.index(
+  { orderId: 1, source: 1 },
+  { unique: true, partialFilterExpression: { source: 'REFERRER_FIRST_ORDER_REWARD' } },
+);
+
 module.exports = mongoose.model('WalletTransaction', walletTransactionSchema);

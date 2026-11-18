@@ -2,6 +2,7 @@ const argon2 = require('argon2');
 const { getEnv } = require('../config/env');
 const { ApiError } = require('../utils/ApiError');
 const User = require('../models/User');
+const Otp = require('../models/Otp');
 const { issueCode, consumeCode } = require('./otp.service');
 const { issueRefresh, rotateRefresh, revokeToken, revokeAll } = require('./token.service');
 const referral = require('./referral.service');
@@ -87,7 +88,13 @@ async function register({ fullName, email, phone, password, referralCode }) {
     }
   }
   if (!user) throw new ApiError(500, 'REFERRAL_CODE', 'Could not create a referral code. Please try again.');
-  await issueCode(email, 'registration', { userId: String(user._id) });
+  try {
+    await issueCode(email, 'registration', { userId: String(user._id) });
+  } catch (error) {
+    await User.deleteOne({ _id: user._id, isEmailVerified: false });
+    await Otp.deleteMany({ email, purpose: 'registration' });
+    throw error;
+  }
   return { message: 'Verification code sent.' };
 }
 
@@ -138,6 +145,7 @@ async function login({ email, password }, meta) {
   if (user.isBlocked) throw new ApiError(403, 'ACCOUNT_BLOCKED', user.blockedReason || 'This account is blocked.');
   user.lastLoginAt = new Date();
   await referral.ensureReferralCode(user);
+  await referral.grantSignupBonus(user);
   await user.save();
   const tokens = await issueRefresh({
     subjectId: user._id,

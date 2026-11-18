@@ -1,7 +1,9 @@
 const request = require('supertest');
 const { createApp } = require('../app');
+const { ApiError } = require('../utils/ApiError');
 const User = require('../models/User');
 const Referral = require('../models/Referral');
+const email = require('../services/email.service');
 const { createVerifiedUser, createAdminSession, registerUser, verifyUser, auth } = require('./helpers/authHelpers');
 const { seedSaree } = require('./helpers/factories');
 
@@ -136,5 +138,45 @@ describe('referral cash', () => {
     const blocked = await request(app).get(`/api/v1/referrals/validate/${code}`);
     expect(blocked.status).toBe(400);
     expect(blocked.body.error.code).toBe('REFERRAL_PAUSED');
+  });
+
+  test('a failed verification email does not leave a stuck account', async () => {
+    const sendMail = jest.spyOn(email, 'sendMail').mockRejectedValueOnce(
+      new ApiError(503, 'EMAIL_NOT_CONFIGURED', 'Email delivery is not configured.'),
+    );
+    const emailAddress = `retry${Date.now()}@example.com`;
+    const phone = `+91 ${Math.floor(6000000000 + Math.random() * 100000000)}`;
+    const first = await request(app).post('/api/v1/auth/register').send({
+      fullName: 'Retry User',
+      email: emailAddress,
+      phone,
+      password: 'Test@1234',
+    });
+    expect(first.status).toBe(503);
+    expect(await User.countDocuments({ email: emailAddress })).toBe(0);
+
+    sendMail.mockRestore();
+    const second = await request(app).post('/api/v1/auth/register').send({
+      fullName: 'Retry User',
+      email: emailAddress,
+      phone,
+      password: 'Test@1234',
+    });
+    expect(second.status).toBe(201);
+  });
+
+  test('signing in again does not pay the signup cash twice', async () => {
+    const referrer = await createVerifiedUser(app, { fullName: 'Chaitanya Kumar' });
+    const friend = await createVerifiedUser(app, { fullName: 'Meera Nair', referralCode: referrer.user.referralCode });
+    expect(friend.user.walletBalance).toBe(500);
+
+    const again = await request(app).post('/api/v1/auth/login').send({
+      email: friend.email,
+      password: friend.password,
+    });
+    expect(again.status).toBe(200);
+    expect(again.body.data.user.walletBalance).toBe(500);
+    expect((await User.findById(friend.user.id)).walletBalance).toBe(500);
+    expect(await Referral.countDocuments({ refereeId: friend.user.id })).toBe(1);
   });
 });

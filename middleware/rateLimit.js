@@ -8,6 +8,7 @@ const rateConfig = {
   forgotMax: process.env.NODE_ENV === 'test' ? 200 : 3,
   adminLoginMax: process.env.NODE_ENV === 'test' ? 200 : 5,
   billingPinMax: process.env.NODE_ENV === 'test' ? 200 : 8,
+  referralCheckMax: process.env.NODE_ENV === 'test' ? 1000 : 30,
 };
 
 function build({ windowMs, max, name }) {
@@ -35,4 +36,5 @@ module.exports = {
   forgotLimiter: build({ windowMs: 15 * 60 * 1000, max: () => rateConfig.forgotMax, name: 'forgot' }),
   adminLoginLimiter: build({ windowMs: 15 * 60 * 1000, max: () => rateConfig.adminLoginMax, name: 'admin-login' }),
   billingPinLimiter: build({ windowMs: 15 * 60 * 1000, max: () => rateConfig.billingPinMax, name: 'billing-pin' }),
+  referralCheckLimiter: build({ windowMs: 60 * 1000, max: () => rateConfig.referralCheckMax, name: 'referral-check' }),
 };

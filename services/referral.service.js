@@ -159,51 +159,93 @@ async function validateCode(code) {
     valid: true,
     code: referrer.referralCode,
     referrerName: formatDisplayName(referrer.fullName),
-    referrerId: String(referrer._id),
     instantCash: program.refereeSignupBonus,
   };
 }
 
-async function grantSignupBonus(user, fallbackCode) {
-  const chosen = String(user.pendingReferralCode || fallbackCode || '').trim().toUpperCase();
+async function creditWallet({ userId, amount, source, orderId, description, session }) {
+  const amountRupees = rupees(amount);
+  if (amountRupees <= 0) return false;
+  try {
+    await WalletTransaction.create([{
+      userId,
+      amount: amountRupees,
+      type: 'CREDIT',
+      source,
+      orderId: orderId || null,
+      description,
+    }], session ? { session } : undefined);
+  } catch (error) {
+    if (error?.code === 11000) return false;
+    throw error;
+  }
+  try {
+    await User.updateOne(
+      { _id: userId },
+      { $inc: { walletBalance: amountRupees } },
+      session ? { session } : undefined,
+    );
+  } catch (error) {
+    if (!session) {
+      await WalletTransaction.deleteOne({ userId, source, orderId: orderId || null });
+    }
+    throw error;
+  }
+  return true;
+}
+
+async function rememberReferral(user, referralRow) {
   user.pendingReferralCode = '';
+  user.referredById = referralRow.referrerId;
+  const alreadyPaid = await WalletTransaction.exists({
+    userId: user._id,
+    source: 'REFERRAL_SIGNUP_BONUS',
+  });
+  if (!alreadyPaid) {
+    await creditWallet({
+      userId: user._id,
+      amount: referralRow.refereeInstantReward,
+      source: 'REFERRAL_SIGNUP_BONUS',
+      description: `Instant welcome cash for joining with code ${referralRow.referralCode}`,
+    });
+  }
+  const fresh = await User.findById(user._id).select('walletBalance');
+  if (fresh) user.walletBalance = fresh.walletBalance;
+  await user.save();
+  return user;
+}
+
+async function grantSignupBonus(user, fallbackCode) {
   const already = await Referral.findOne({ refereeId: user._id });
-  if (already) {
-    if (!user.referredById) user.referredById = already.referrerId;
-    await user.save();
-    return user;
-  }
-  if (!chosen) {
-    await user.save();
-    return user;
-  }
+  if (already) return rememberReferral(user, already);
+  const chosen = String(user.pendingReferralCode || fallbackCode || '').trim().toUpperCase();
+  if (!chosen || !user.isEmailVerified) return user;
   const program = presentProgram(await getProgram());
   const referrer = await findActiveReferrer(chosen);
+  user.pendingReferralCode = '';
   if (!program.enabled || !referrer || String(referrer._id) === String(user._id)) {
     await user.save();
     return user;
   }
-  await Referral.create({
-    referrerId: referrer._id,
-    refereeId: user._id,
-    referralCode: referrer.referralCode,
-    status: 'PENDING',
-    refereeInstantReward: program.refereeSignupBonus,
-    referrerReward: program.referrerOrderReward,
-  });
-  user.referredById = referrer._id;
-  if (program.refereeSignupBonus > 0) {
-    user.walletBalance = rupees(user.walletBalance) + program.refereeSignupBonus;
-    await WalletTransaction.create({
-      userId: user._id,
-      amount: program.refereeSignupBonus,
-      type: 'CREDIT',
-      source: 'REFERRAL_SIGNUP_BONUS',
-      description: `Instant welcome cash for joining with code ${referrer.referralCode}`,
+  let referralRow;
+  try {
+    referralRow = await Referral.create({
+      referrerId: referrer._id,
+      refereeId: user._id,
+      referralCode: referrer.referralCode,
+      status: 'PENDING',
+      refereeInstantReward: program.refereeSignupBonus,
+      referrerReward: program.referrerOrderReward,
     });
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+    referralRow = await Referral.findOne({ refereeId: user._id });
   }
-  await user.save();
-  return user;
+  if (!referralRow) {
+    await user.save();
+    return user;
+  }
+  return rememberReferral(user, referralRow);
 }
 
 async function maybeCompleteReferral({ userId, orderId, session }) {
@@ -224,21 +266,23 @@ async function maybeCompleteReferral({ userId, orderId, session }) {
     options,
   );
   if (!referral) return null;
-  const reward = rupees(referral.referrerReward);
-  if (reward > 0) {
-    await User.updateOne(
-      { _id: referral.referrerId },
-      { $inc: { walletBalance: reward } },
-      session ? { session } : undefined,
-    );
-    await WalletTransaction.create([{
+  try {
+    await creditWallet({
       userId: referral.referrerId,
-      amount: reward,
-      type: 'CREDIT',
+      amount: referral.referrerReward,
       source: 'REFERRER_FIRST_ORDER_REWARD',
       orderId,
       description: 'Referral cash reward. Your friend placed their first order.',
-    }], session ? { session } : undefined);
+      session,
+    });
+  } catch (error) {
+    if (!session) {
+      await Referral.updateOne(
+        { _id: referral._id, status: 'COMPLETED', firstOrderId: orderId },
+        { $set: { status: 'PENDING', firstOrderId: null, completedAt: null } },
+      );
+    }
+    throw error;
   }
   return referral;
 }
@@ -272,14 +316,16 @@ async function reverseForCancelledOrder(order, session) {
   if (!referral) return null;
   const reward = rupees(referral.referrerReward);
   const referrer = await tie(User.findById(referral.referrerId), session);
-  const balance = rupees(referrer?.walletBalance);
-  const clawback = Math.min(reward, balance);
+  let clawback = Math.min(reward, rupees(referrer?.walletBalance));
   if (clawback > 0) {
-    await User.updateOne(
-      { _id: referral.referrerId },
+    const debited = await User.findOneAndUpdate(
+      { _id: referral.referrerId, walletBalance: { $gte: clawback } },
       { $inc: { walletBalance: -clawback } },
-      session ? { session } : undefined,
+      { returnDocument: 'after', ...(session ? { session } : {}) },
     );
+    if (!debited) clawback = 0;
+  }
+  if (clawback > 0) {
     await WalletTransaction.create([{
       userId: referral.referrerId,
       amount: -clawback,
