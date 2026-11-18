@@ -4,6 +4,7 @@ const { ApiError } = require('../utils/ApiError');
 const User = require('../models/User');
 const { issueCode, consumeCode } = require('./otp.service');
 const { issueRefresh, rotateRefresh, revokeToken, revokeAll } = require('./token.service');
+const referral = require('./referral.service');
 
 const GENERIC_LOGIN = 'Invalid email or password.';
 const GENERIC_RESET = 'If an account exists for that email, a reset code has been sent.';
@@ -40,6 +41,8 @@ function publicUser(user) {
     avatarUrl: user.avatarUrl || '',
     isEmailVerified: user.isEmailVerified,
     isBlocked: Boolean(user.isBlocked),
+    referralCode: user.referralCode || '',
+    walletBalance: Math.round(Number(user.walletBalance) || 0),
     createdAt: user.createdAt || null,
     joinedDate: user.createdAt
       ? new Date(user.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -47,27 +50,56 @@ function publicUser(user) {
   };
 }
 
-async function register({ fullName, email, phone, password }) {
+async function register({ fullName, email, phone, password, referralCode }) {
   const existing = await User.findOne({ $or: [{ email }, { phone }], deletedAt: null });
   if (existing) throw new ApiError(409, 'ACCOUNT_EXISTS', 'An account with that email or phone already exists.');
-  const user = await User.create({
-    fullName,
-    email,
-    phone,
-    passwordHash: await hashPassword(password),
-    isEmailVerified: false,
-  });
+  let pendingReferralCode = '';
+  if (referralCode) {
+    const program = referral.presentProgram(await referral.getProgram());
+    if (!program.enabled) {
+      throw new ApiError(400, 'REFERRAL_PAUSED', 'Referral rewards are paused right now.');
+    }
+    const referrer = await referral.findActiveReferrer(referralCode);
+    if (!referrer) {
+      throw new ApiError(400, 'INVALID_REFERRAL', 'Invalid referral code. Please check and try again.');
+    }
+    pendingReferralCode = referrer.referralCode;
+  }
+  let user = null;
+  for (let attempt = 0; attempt < 3 && !user; attempt += 1) {
+    try {
+      user = await User.create({
+        fullName,
+        email,
+        phone,
+        passwordHash: await hashPassword(password),
+        isEmailVerified: false,
+        referralCode: await referral.generateUniqueReferralCode(fullName),
+        pendingReferralCode,
+      });
+    } catch (error) {
+      const key = Object.keys(error?.keyPattern || {})[0];
+      if (error?.code === 11000 && key === 'referralCode') continue;
+      if (error?.code === 11000) {
+        throw new ApiError(409, 'ACCOUNT_EXISTS', 'An account with that email or phone already exists.');
+      }
+      throw error;
+    }
+  }
+  if (!user) throw new ApiError(500, 'REFERRAL_CODE', 'Could not create a referral code. Please try again.');
   await issueCode(email, 'registration', { userId: String(user._id) });
   return { message: 'Verification code sent.' };
 }
 
-async function verifyRegistration({ email, code }, meta) {
+async function verifyRegistration({ email, code, referralCode }, meta) {
   await consumeCode(email, 'registration', code);
   const user = await User.findOne({ email, deletedAt: null });
   if (!user) throw new ApiError(400, 'OTP_INVALID', 'The code is invalid or has expired.');
   user.isEmailVerified = true;
   user.lastLoginAt = new Date();
   await user.save();
+  await referral.ensureReferralCode(user);
+  await referral.grantSignupBonus(user, referralCode);
   try {
     const { openWallet } = require('./tryon/usage.service');
     await openWallet(user);
@@ -105,6 +137,7 @@ async function login({ email, password }, meta) {
   if (!user.isEmailVerified) throw new ApiError(403, 'EMAIL_NOT_VERIFIED', 'Verify your email before signing in.');
   if (user.isBlocked) throw new ApiError(403, 'ACCOUNT_BLOCKED', user.blockedReason || 'This account is blocked.');
   user.lastLoginAt = new Date();
+  await referral.ensureReferralCode(user);
   await user.save();
   const tokens = await issueRefresh({
     subjectId: user._id,
@@ -118,6 +151,7 @@ async function login({ email, password }, meta) {
 
 async function refresh(rawToken, meta) {
   const rotated = await rotateRefresh(rawToken, { subjectType: 'user', audience: 'app', ...meta });
+  await referral.ensureReferralCode(rotated.user);
   return {
     accessToken: rotated.accessToken,
     refreshToken: rotated.refreshToken,

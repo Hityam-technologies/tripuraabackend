@@ -34,6 +34,7 @@ const couponCheckSchema = z.object({
 const placeOrderSchema = z.object({
   paymentMethod: z.enum(['ONLINE', 'COD']),
   promoCode: z.string().trim().max(40).optional().default(''),
+  useWallet: z.boolean().optional().default(false),
   shippingAddressId: objectId.optional(),
   shippingAddress: addressSchema.optional(),
 });

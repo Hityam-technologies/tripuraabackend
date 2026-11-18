@@ -7,7 +7,9 @@ async function registerUser(app, overrides = {}) {
   const phone = overrides.phone || `+91 ${Math.floor(6000000000 + Math.random() * 3000000000)}`;
   const password = overrides.password || 'Test@1234';
   const fullName = overrides.fullName || 'Test User';
-  const response = await request(app).post('/api/v1/auth/register').send({ fullName, email, phone, password });
+  const payload = { fullName, email, phone, password };
+  if (overrides.referralCode) payload.referralCode = overrides.referralCode;
+  const response = await request(app).post('/api/v1/auth/register').send(payload);
   const mail = getOutbox().at(-1);
   const code = mail?.text?.match(/\b(\d{6})\b/)?.[1];
   return { response, email, phone, password, fullName, code };

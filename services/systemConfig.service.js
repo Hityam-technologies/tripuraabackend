@@ -37,7 +37,16 @@ async function getOrCreate() {
 }
 
 async function getPublicConfig() {
-  return presentConfig(await getOrCreate());
+  const referral = require('./referral.service');
+  const program = referral.presentProgram(await referral.getProgram());
+  return {
+    ...presentConfig(await getOrCreate()),
+    referral: {
+      enabled: program.enabled,
+      refereeSignupBonus: program.refereeSignupBonus,
+      referrerOrderReward: program.referrerOrderReward,
+    },
+  };
 }
 
 async function updateConfig(patch, actor) {

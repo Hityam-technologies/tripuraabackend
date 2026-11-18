@@ -20,6 +20,7 @@ router.use('/users', require('./user/address.routes'));
 router.use('/users', require('./user/profile.routes'));
 router.use('/cart', require('./user/cart.routes'));
 router.use('/promotions', require('./user/promotion.routes'));
+router.use('/referrals', require('./user/referral.routes'));
 router.use('/payments', require('./user/payment.routes'));
 router.use('/users', require('./user/wishlist.routes'));
 router.use('/users', require('./user/enquiry.routes'));

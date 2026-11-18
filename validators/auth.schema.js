@@ -1,17 +1,20 @@
 const { z } = require('zod');
 const { emailSchema, passwordSchema, phoneSchema } = require('./common.schema');
+const { optionalReferralCode } = require('./referral.schema');
 
 const registerSchema = z.object({
   fullName: z.string().trim().min(2).max(80),
   email: emailSchema,
   phone: phoneSchema,
   password: passwordSchema,
+  referralCode: optionalReferralCode,
 });
 
 const verifySchema = z.object({
   email: emailSchema,
   code: z.string().regex(/^\d{6}$/),
   purpose: z.enum(['registration', 'forgot-password']).optional(),
+  referralCode: optionalReferralCode,
 });
 
 const resendSchema = z.object({

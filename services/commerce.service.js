@@ -9,6 +9,8 @@ const User = require('../models/User');
 const Coupon = require('../models/Coupon');
 const ShopOrder = require('../models/ShopOrder');
 const InvoiceCounter = require('../models/InvoiceCounter');
+const WalletTransaction = require('../models/WalletTransaction');
+const referral = require('./referral.service');
 
 const SHIPPING_FEE = 0;
 const NEXT_STATUS = {
@@ -184,6 +186,7 @@ function presentOrder(order) {
     statusLabel: statusLabel(order.status),
     subtotal: order.subtotal,
     discountAmount: order.discountAmount,
+    walletAmount: order.walletAmount || 0,
     shippingFee: order.shippingFee,
     totalAmount: order.totalAmount,
     promoCode: order.promoCode || '',
@@ -460,14 +463,21 @@ async function placeOrder(user, input) {
     const lines = (await loadLines(user._id, session)).filter((line) => line.inStock);
     if (!lines.length) throw new ApiError(400, 'CART_EMPTY', 'Add a saree before placing an order.');
     const subtotal = lines.reduce((sum, line) => sum + line.saree.price * line.quantity, 0);
+    const earlierOrders = await priorOrderCount(user._id, session);
     let discountAmount = 0;
     let promoCode = '';
     if (input.promoCode) {
       const coupon = await Coupon.findOne({ code: String(input.promoCode).trim().toUpperCase(), isActive: true });
-      const quote = quoteCoupon(coupon, subtotal, await priorOrderCount(user._id, session));
+      const quote = quoteCoupon(coupon, subtotal, earlierOrders);
       if (!quote.valid) throw new ApiError(400, 'COUPON_REJECTED', quote.message);
       discountAmount = quote.discountAmount;
       promoCode = quote.code;
+    }
+    const amountDue = Math.max(0, subtotal - discountAmount + SHIPPING_FEE);
+    let walletAmount = 0;
+    if (input.useWallet) {
+      const payer = await tie(User.findById(user._id), session);
+      walletAmount = Math.min(Math.round(Number(payer?.walletBalance) || 0), amountDue);
     }
     await takeStock(lines, session);
     const created = await ShopOrder.create([{
@@ -489,15 +499,42 @@ async function placeOrder(user, input) {
       })),
       subtotal,
       discountAmount,
+      walletAmount,
       shippingFee: SHIPPING_FEE,
-      totalAmount: Math.max(0, subtotal - discountAmount),
+      totalAmount: Math.max(0, amountDue - walletAmount),
       promoCode,
       paymentMethod: 'COD',
       paymentStatus: 'PAY_ON_DELIVERY',
       shippingAddress,
     }], session ? { session } : undefined);
+    const order = created[0];
+    if (walletAmount > 0) {
+      const debited = await User.findOneAndUpdate(
+        { _id: user._id, walletBalance: { $gte: walletAmount } },
+        { $inc: { walletBalance: -walletAmount } },
+        { returnDocument: 'after', ...(session ? { session } : {}) },
+      );
+      if (!debited) {
+        if (!session) {
+          await restoreStock(order.items, null);
+          await ShopOrder.deleteOne({ _id: order._id });
+        }
+        throw new ApiError(409, 'WALLET_CHANGED', 'Your store cash changed. Please try the order again.');
+      }
+      await WalletTransaction.create([{
+        userId: user._id,
+        amount: -walletAmount,
+        type: 'DEBIT',
+        source: 'ORDER_PAYMENT',
+        orderId: order._id,
+        description: `Store cash used on order ${order.orderNumber}`,
+      }], session ? { session } : undefined);
+    }
+    if (earlierOrders === 0) {
+      await referral.maybeCompleteReferral({ userId: user._id, orderId: order._id, session });
+    }
     await clearCart(user, session);
-    return presentOrder(created[0]);
+    return presentOrder(order);
   });
 }
 
@@ -520,6 +557,7 @@ async function cancelOrder(user, orderId) {
       throw new ApiError(409, 'CANNOT_CANCEL', 'This order can no longer be cancelled.');
     }
     await restoreStock(order.items, session);
+    await referral.reverseForCancelledOrder(order, session);
     order.status = 'CANCELLED';
     order.cancelledAt = new Date();
     await order.save(session ? { session } : undefined);
@@ -559,7 +597,10 @@ async function adminSetStatus(orderId, status, actor, meta) {
       throw new ApiError(409, 'INVALID_STATUS', `An order that is ${statusLabel(order.status)} cannot move to ${statusLabel(status)}.`);
     }
     const before = order.status;
-    if (status === 'CANCELLED') await restoreStock(order.items, session);
+    if (status === 'CANCELLED') {
+      await restoreStock(order.items, session);
+      await referral.reverseForCancelledOrder(order, session);
+    }
     if (status === 'DELIVERED' && order.paymentMethod === 'COD') order.paymentStatus = 'PAID';
     order.status = status;
     if (status === 'CANCELLED') order.cancelledAt = new Date();

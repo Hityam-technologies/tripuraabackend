@@ -26,6 +26,12 @@ const userSchema = new mongoose.Schema(
     lastLoginAt: { type: Date },
     deletedAt: { type: Date, default: null },
     address: { type: deliveryAddressSchema },
+    // Each customer shares this code. Example: CHAITAN4821.
+    referralCode: { type: String, unique: true, sparse: true, uppercase: true, trim: true },
+    referredById: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+    // Saved at signup and turned into store cash only after the email code is verified.
+    pendingReferralCode: { type: String, default: '', uppercase: true, trim: true },
+    walletBalance: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true },
 );

@@ -1,6 +1,7 @@
 const { ApiError } = require('../utils/ApiError');
 const { pageMeta } = require('../utils/pagination');
 const { publicUser } = require('./auth.service');
+const referral = require('./referral.service');
 const { presentSaree } = require('../utils/presenters');
 const { hashPassword, verifyPassword } = require('./auth.service');
 const { revokeAll } = require('./token.service');
@@ -14,6 +15,7 @@ const Enquiry = require('../models/Enquiry');
 const Saree = require('../models/Saree');
 
 async function getMe(user) {
+  await referral.ensureReferralCode(user);
   return publicUser(user);
 }
 

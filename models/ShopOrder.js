@@ -46,6 +46,8 @@ const shopOrderSchema = new mongoose.Schema(
     shippingFee: { type: Number, default: 0, min: 0 },
     totalAmount: { type: Number, required: true, min: 0 },
     promoCode: { type: String, default: '' },
+    walletAmount: { type: Number, default: 0, min: 0 },
+    walletRefunded: { type: Boolean, default: false },
     paymentMethod: { type: String, enum: ['ONLINE', 'COD'], required: true },
     paymentStatus: {
       type: String,
