@@ -17,6 +17,8 @@ const schema = z.object({
   SMTP_USER: z.string().optional().default(''),
   SMTP_PASS: z.string().optional().default(''),
   SMTP_FROM: z.string().optional().default('Tripuraa Sangrahah <no-reply@tripuraa.local>'),
+  // Prefer this on Render — outbound SMTP (587/465) is often blocked; HTTPS is not.
+  BREVO_API_KEY: z.string().optional().default(''),
   FASHN_API_KEY: z.string().optional().default(''),
   FASHN_MODEL: z.preprocess(
     (value) => (value === '' || value == null ? undefined : value),
