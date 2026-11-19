@@ -53,7 +53,10 @@ function publicUser(user) {
 
 async function register({ fullName, email, phone, password, referralCode }) {
   const existing = await User.findOne({ $or: [{ email }, { phone }], deletedAt: null });
-  if (existing) throw new ApiError(409, 'ACCOUNT_EXISTS', 'An account with that email or phone already exists.');
+  if (existing?.isEmailVerified) {
+    throw new ApiError(409, 'ACCOUNT_EXISTS', 'An account with that email or phone already exists.');
+  }
+
   let pendingReferralCode = '';
   if (referralCode) {
     const program = referral.presentProgram(await referral.getProgram());
@@ -66,6 +69,43 @@ async function register({ fullName, email, phone, password, referralCode }) {
     }
     pendingReferralCode = referrer.referralCode;
   }
+
+  // Unverified leftovers from a failed/abandoned signup — replace and resend OTP
+  if (existing && !existing.isEmailVerified) {
+    const emailTakenByOther = existing.email !== email
+      ? await User.findOne({ email, deletedAt: null, _id: { $ne: existing._id } })
+      : null;
+    const phoneTakenByOther = existing.phone !== phone
+      ? await User.findOne({ phone, deletedAt: null, _id: { $ne: existing._id } })
+      : null;
+    if (emailTakenByOther?.isEmailVerified || phoneTakenByOther?.isEmailVerified) {
+      throw new ApiError(409, 'ACCOUNT_EXISTS', 'An account with that email or phone already exists.');
+    }
+    if (emailTakenByOther && !emailTakenByOther.isEmailVerified) {
+      await User.deleteOne({ _id: emailTakenByOther._id, isEmailVerified: false });
+      await Otp.deleteMany({ email: emailTakenByOther.email, purpose: 'registration' });
+    }
+    if (phoneTakenByOther && !phoneTakenByOther.isEmailVerified) {
+      await User.deleteOne({ _id: phoneTakenByOther._id, isEmailVerified: false });
+      await Otp.deleteMany({ email: phoneTakenByOther.email, purpose: 'registration' });
+    }
+
+    existing.fullName = fullName;
+    existing.email = email;
+    existing.phone = phone;
+    existing.passwordHash = await hashPassword(password);
+    existing.pendingReferralCode = pendingReferralCode;
+    await existing.save();
+    try {
+      await issueCode(email, 'registration', { userId: String(existing._id) });
+    } catch (error) {
+      await User.deleteOne({ _id: existing._id, isEmailVerified: false });
+      await Otp.deleteMany({ email, purpose: 'registration' });
+      throw error;
+    }
+    return { message: 'Verification code sent.' };
+  }
+
   let user = null;
   for (let attempt = 0; attempt < 3 && !user; attempt += 1) {
     try {
