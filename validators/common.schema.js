@@ -11,7 +11,11 @@ function paginationSchema(defaultLimit = 20) {
 }
 
 const passwordSchema = z.string().min(8).regex(/[!@#$%^&*(),.?":{}|<>]/, 'Password must include a special character.');
-const emailSchema = z.string().trim().toLowerCase().regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Enter a valid email.');
+const emailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i, 'Enter a valid email.');
 const phoneSchema = z.string().trim().min(6).max(24);
 
 module.exports = { objectId, paginationSchema, passwordSchema, emailSchema, phoneSchema };

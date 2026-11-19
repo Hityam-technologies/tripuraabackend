@@ -23,9 +23,16 @@ function errorHandler(error, req, res, _next) {
     message = 'That value is already in use.';
   }
 
+  // Keep intentional ApiError copy for clients (e.g. EMAIL_NOT_CONFIGURED at 503).
+  // Only hide unexpected internal crashes in production.
+  const isOperational = error instanceof ApiError || error.isOperational === true;
   if (status >= 500) {
     logger.error('request failed', { requestId: req.id, code, message: error.message });
-    if (getEnv().NODE_ENV === 'production') message = 'Something went wrong.';
+    if (getEnv().NODE_ENV === 'production' && !isOperational) {
+      message = 'Something went wrong.';
+      code = 'INTERNAL_ERROR';
+      details = undefined;
+    }
   }
 
   res.status(status).json({
