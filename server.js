@@ -10,6 +10,8 @@ async function start() {
   await connectDb();
   const { moveLegacyAddressesOntoCustomers } = require('./services/commerce.service');
   await moveLegacyAddressesOntoCustomers().catch((error) => logger.warn('address move skipped', { message: error.message }));
+  const { removeSareesWithoutCategory } = require('./services/catalog.service');
+  await removeSareesWithoutCategory().catch((error) => logger.warn('orphan saree purge skipped', { message: error.message }));
   const { purgeExpiredRenders } = require('./services/tryon/tryOn.service');
   await purgeExpiredRenders().catch((error) => logger.warn('render retention skipped', { message: error.message }));
   const app = createApp();

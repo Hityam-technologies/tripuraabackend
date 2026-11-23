@@ -37,6 +37,6 @@ describe('admin categories', () => {
     const hidden = await request(app).get('/api/v1/sarees/saree-festive');
     expect(hidden.status).toBe(404);
     const archived = await request(app).get('/api/v1/admin/sarees/saree-festive').set(auth(admin.token));
-    expect(archived.body.data.deletedAt).toBeTruthy();
+    expect(archived.status).toBe(404);
   });
 });

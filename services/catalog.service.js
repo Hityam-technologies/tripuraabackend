@@ -4,6 +4,9 @@ const { presentSaree, presentCategory } = require('../utils/presenters');
 const { randomToken } = require('../utils/tokens');
 const Saree = require('../models/Saree');
 const Category = require('../models/Category');
+const CartItem = require('../models/CartItem');
+const Wishlist = require('../models/Wishlist');
+const SavedTryOnLook = require('../models/SavedTryOnLook');
 const { storage } = require('./storage');
 
 function slugify(value) {
@@ -417,6 +420,34 @@ async function updateCategory(id, input) {
   return { before, after: presentCategory(doc.toObject()) };
 }
 
+async function eraseSarees(filter) {
+  const rows = await Saree.find(filter).select('id images').lean();
+  if (!rows.length) return 0;
+  const ids = rows.map((row) => row.id);
+  const fileIds = rows.flatMap((row) => (row.images || [])
+    .map((image) => image.key)
+    .filter((key) => String(key || '').startsWith('imagekit:')));
+  if (fileIds.length) {
+    const { deleteFile } = require('./media.service');
+    await Promise.all(fileIds.map((key) => deleteFile(key).catch(() => null)));
+  }
+  await Promise.all([
+    CartItem.deleteMany({ sareeId: { $in: ids } }),
+    Wishlist.deleteMany({ sareeId: { $in: ids } }),
+    SavedTryOnLook.deleteMany({ sareeId: { $in: ids } }),
+    Saree.deleteMany({ id: { $in: ids } }),
+  ]);
+  return ids.length;
+}
+
+async function removeSareesWithoutCategory() {
+  const ids = await Category.distinct('id');
+  return eraseSarees({
+    deletedAt: { $ne: null },
+    category: { $nin: ids },
+  });
+}
+
 async function deleteCategory(id, options = {}) {
   const reassignTo = typeof options === 'string' ? options : options.reassignTo;
   const removeSarees = typeof options === 'object' && options.removeSarees === true;
@@ -424,20 +455,20 @@ async function deleteCategory(id, options = {}) {
   const doc = await Category.findOne({ id });
   if (!doc) throw new ApiError(404, 'RESOURCE_NOT_FOUND', 'Category not found.');
   const used = await Saree.countDocuments({ category: id, deletedAt: null });
+  let removedSarees = 0;
   if (used && removeSarees) {
-    await Saree.updateMany(
-      { category: id, deletedAt: null },
-      { $set: { deletedAt: new Date(), isActive: false } },
-    );
+    removedSarees = await eraseSarees({ category: id });
   } else if (used && reassignTo) {
     const target = await Category.findOne({ id: reassignTo });
     if (!target) throw new ApiError(400, 'VALIDATION_ERROR', 'Reassignment category was not found.');
     await Saree.updateMany({ category: id }, { $set: { category: reassignTo } });
   } else if (used) {
     throw new ApiError(409, 'CATEGORY_IN_USE', 'Move the sarees to another category, or remove them, before deleting this category.');
+  } else if (removeSarees) {
+    removedSarees = await eraseSarees({ category: id });
   }
   await doc.deleteOne();
-  return { id, label: doc.label, removedSarees: removeSarees ? used : 0 };
+  return { id, label: doc.label, removedSarees };
 }
 
 async function reorderCategories(order) {
@@ -465,5 +496,6 @@ module.exports = {
   createCategory,
   updateCategory,
   deleteCategory,
+  removeSareesWithoutCategory,
   reorderCategories,
 };
