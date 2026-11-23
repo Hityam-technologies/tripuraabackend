@@ -28,5 +28,15 @@ describe('admin categories', () => {
     const order = await request(app).put('/api/v1/admin/categories/reorder').set(auth(admin.token)).send({ order: ['tissue', 'bridal'] });
     expect(order.status).toBe(200);
     expect(order.body.data[0].id).toBe('tissue');
+
+    await seedCategory({ id: 'festive', label: 'Festive', sortOrder: 3 });
+    await seedSaree({ id: 'saree-festive', slug: 'festive-saree', category: 'festive', title: 'Festive Saree' });
+    const cleared = await request(app).delete('/api/v1/admin/categories/festive').set(auth(admin.token)).send({ removeSarees: true });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.data.removedSarees).toBe(1);
+    const hidden = await request(app).get('/api/v1/sarees/saree-festive');
+    expect(hidden.status).toBe(404);
+    const archived = await request(app).get('/api/v1/admin/sarees/saree-festive').set(auth(admin.token));
+    expect(archived.body.data.deletedAt).toBeTruthy();
   });
 });
