@@ -48,6 +48,22 @@ describe('catalog', () => {
     const one = await request(app).get('/api/v1/sarees/saree-1');
     expect(one.status).toBe(200);
     expect(one.body.data.numericPrice).toBe(28500);
+
+    await seedSaree({
+      id: 'saree-photo',
+      slug: 'peacock-pattu',
+      title: 'Peacock Pattu',
+      images: [{
+        url: 'https://ik.imagekit.io/demo/sarees/peacock.jpg',
+        key: 'imagekit:abc123',
+        sortOrder: 0,
+        isPrimary: true,
+      }],
+      flatImageUrl: 'https://ik.imagekit.io/demo/sarees/peacock.jpg',
+    });
+    const photo = await request(app).get('/api/v1/sarees/saree-photo');
+    expect(photo.body.data.image).toBe('https://ik.imagekit.io/demo/sarees/peacock.jpg?tr=f-jpg,w-900,c-at_max,q-80');
+    expect(photo.body.data.images[0].isPrimary).toBe(true);
     expect((await request(app).get('/api/v1/sarees/saree-hidden')).status).toBe(404);
     expect((await request(app).get('/api/v1/sarees/missing')).status).toBe(404);
 

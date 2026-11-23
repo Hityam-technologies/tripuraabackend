@@ -1,9 +1,22 @@
 const { formatInr } = require('./price');
 
+// The phone image loader trusts the .jpg ending. ImageKit otherwise answers
+// with a WebP file, and the card stays blank. Ask for a JPEG the phone can draw.
+function catalogImageUrl(url, admin) {
+  if (admin || typeof url !== 'string' || !/^https?:\/\/ik\.imagekit\.io\//.test(url)) return url || '';
+  if (/[?&]tr=[^#]*f-jpg/.test(url)) return url;
+  if (/[?&]tr=/.test(url)) return url.replace(/([?&]tr=)/, '$1f-jpg,');
+  const join = url.includes('?') ? '&' : '?';
+  return `${url}${join}tr=f-jpg,w-900,c-at_max,q-80`;
+}
+
 function presentSaree(doc, { admin = false } = {}) {
-  const images = [...(doc.images || [])].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  const images = [...(doc.images || [])].sort((a, b) => {
+    if (Boolean(a.isPrimary) !== Boolean(b.isPrimary)) return a.isPrimary ? -1 : 1;
+    return (a.sortOrder || 0) - (b.sortOrder || 0);
+  });
   const primary = images.find((image) => image.isPrimary) || images[0];
-  const imageUrl = primary?.url || doc.flatImageUrl || '';
+  const imageUrl = catalogImageUrl(primary?.url || doc.flatImageUrl || '', admin);
   const payload = {
     id: doc.id,
     slug: doc.slug,
@@ -34,13 +47,13 @@ function presentSaree(doc, { admin = false } = {}) {
     stockQuantity: doc.stockQuantity,
     images: images.map((image) => ({
       id: String(image._id),
-      url: image.url,
+      url: catalogImageUrl(image.url, admin),
       key: admin ? (image.key || '') : undefined,
       sortOrder: image.sortOrder,
       isPrimary: Boolean(image.isPrimary),
     })),
     image: imageUrl,
-    tryOnImage: doc.defaultTryOnImageUrl || imageUrl,
+    tryOnImage: catalogImageUrl(doc.defaultTryOnImageUrl || primary?.url || doc.flatImageUrl || '', admin) || imageUrl,
     isFeatured: doc.isFeatured,
     isActive: doc.isActive,
     createdAt: doc.createdAt,
