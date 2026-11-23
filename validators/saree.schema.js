@@ -3,8 +3,13 @@ const { paginationSchema } = require('./common.schema');
 
 const imageUrlSchema = z.union([
   z.string().trim().min(4),
-  z.object({ url: z.string().trim().min(4) }).strip(),
-]).transform((value) => (typeof value === 'string' ? value : value.url));
+  z.object({
+    url: z.string().trim().min(4),
+    key: z.string().optional().default(''),
+  }),
+]).transform((value) => (typeof value === 'string'
+  ? { url: value, key: '' }
+  : { url: value.url, key: value.key || '' }));
 
 const sareeWriteSchema = z.object({
   title: z.string().trim().min(2),

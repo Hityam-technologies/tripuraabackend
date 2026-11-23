@@ -136,7 +136,19 @@ async function saveContent(req, res, key, data) {
 }
 
 const getHero = asyncHandler(async (_req, res) => sendOk(res, await content.hero()));
-const putHero = asyncHandler(async (req, res) => saveContent(req, res, 'hero', req.body));
+const putHero = asyncHandler(async (req, res) => {
+  const previous = await content.hero();
+  const result = await content.write('hero', req.body);
+  const media = require('../../services/media.service');
+  await Promise.all(['videoFileId', 'posterFileId', 'logoFileId'].map(async (field) => {
+    const oldId = previous?.[field];
+    if (oldId && oldId !== req.body?.[field]) {
+      await media.deleteFile(oldId).catch(() => null);
+    }
+  }));
+  await writeAudit(req, { action: 'UPDATE_CONTENT', resource: 'content', resourceId: 'hero', before: result.before, after: result.after });
+  sendOk(res, result.after);
+});
 const getStore = asyncHandler(async (_req, res) => sendOk(res, await content.storeAddress()));
 const putStore = asyncHandler(async (req, res) => saveContent(req, res, 'store', req.body));
 const getSupport = asyncHandler(async (_req, res) => sendOk(res, { channels: await content.supportChannels() }));

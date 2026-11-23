@@ -50,4 +50,67 @@ async function prepareProducts(req, _res, next) {
   }
 }
 
-module.exports = { memoryUpload, preparePortrait, prepareProducts, uploadLimits };
+const IMAGE_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+const IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'webp']);
+
+function imageFileFilter(_req, file, cb) {
+  const mime = String(file.mimetype || '').toLowerCase();
+  const extension = String(file.originalname || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '';
+  const extensionOk = !extension || IMAGE_EXT.has(extension);
+  if (!IMAGE_MIME.has(mime) || !extensionOk) {
+    cb(new ApiError(400, 'BAD_IMAGE', 'Only JPEG, PNG, and WebP images are allowed.'));
+    return;
+  }
+  cb(null, true);
+}
+
+function imageKitUpload(field, maxCount) {
+  const uploader = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024, files: maxCount },
+    fileFilter: imageFileFilter,
+  });
+  return maxCount > 1 ? uploader.array(field, maxCount) : uploader.single(field);
+}
+
+function releaseUploadBuffers(req) {
+  const files = [];
+  if (req?.file) files.push(req.file);
+  if (Array.isArray(req?.files)) files.push(...req.files);
+  for (const file of files) file.buffer = null;
+}
+
+const VIDEO_MIME = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
+const VIDEO_EXT = new Set(['mp4', 'webm', 'mov']);
+
+function videoFileFilter(_req, file, cb) {
+  const mime = String(file.mimetype || '').toLowerCase();
+  const extension = String(file.originalname || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '';
+  if (!VIDEO_MIME.has(mime) || !VIDEO_EXT.has(extension)) {
+    cb(new ApiError(400, 'BAD_IMAGE', 'Use an MP4, WebM, or MOV video.'));
+    return;
+  }
+  cb(null, true);
+}
+
+const uploadHeroVideo = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 80 * 1024 * 1024, files: 1 },
+  fileFilter: videoFileFilter,
+}).single('video');
+
+const uploadSareeImages = imageKitUpload('images', 5);
+const uploadAvatarImage = imageKitUpload('avatar', 1);
+const uploadLibraryImage = imageKitUpload('image', 1);
+
+module.exports = {
+  memoryUpload,
+  preparePortrait,
+  prepareProducts,
+  uploadLimits,
+  uploadSareeImages,
+  uploadAvatarImage,
+  uploadLibraryImage,
+  uploadHeroVideo,
+  releaseUploadBuffers,
+};

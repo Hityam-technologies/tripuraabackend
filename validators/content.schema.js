@@ -5,6 +5,12 @@ const heroSchema = z.object({
   title: z.string().optional().default(''),
   subtitle: z.string().optional().default(''),
   posterUrl: z.string().optional().default(''),
+  logoUrl: z.string().optional().default(''),
+  videoFileId: z.string().optional().default(''),
+  posterFileId: z.string().optional().default(''),
+  logoFileId: z.string().optional().default(''),
+  autoPlay: z.boolean().optional().default(true),
+  loop: z.boolean().optional().default(true),
   isActive: z.boolean().optional().default(true),
 });
 

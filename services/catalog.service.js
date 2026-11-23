@@ -97,20 +97,26 @@ async function adminGet(id) {
   return presentSaree(row, { admin: true });
 }
 
+function imageEntry(value) {
+  if (!value) return null;
+  if (typeof value === 'string') return { url: value.trim(), key: '' };
+  if (typeof value === 'object' && value.url) {
+    return { url: String(value.url).trim(), key: String(value.key || '') };
+  }
+  return null;
+}
+
 function normalizeImageUrl(value) {
-  if (!value) return '';
-  if (typeof value === 'string') return value.trim();
-  if (typeof value === 'object' && value.url) return String(value.url).trim();
-  return '';
+  return imageEntry(value)?.url || '';
 }
 
 function imageDocs(urls = []) {
   return urls
-    .map(normalizeImageUrl)
-    .filter(Boolean)
-    .map((url, index) => ({
-      url,
-      key: '',
+    .map(imageEntry)
+    .filter((item) => item?.url)
+    .map((item, index) => ({
+      url: item.url,
+      key: item.key || '',
       sortOrder: index,
       isPrimary: index === 0,
     }));
@@ -122,7 +128,7 @@ async function createSaree(input) {
   if (clash) throw new ApiError(409, 'DUPLICATE_SLUG', 'A saree with that slug already exists.');
   const urls = input.images?.length ? input.images : [input.image].filter(Boolean);
   const images = imageDocs(urls);
-  const primary = images.find((image) => image.isPrimary)?.url || input.image || '';
+  const primary = images.find((image) => image.isPrimary)?.url || normalizeImageUrl(input.image) || '';
   const doc = await Saree.create({
     id: `saree-${randomToken(6).toLowerCase()}`,
     slug,
@@ -150,7 +156,7 @@ async function createSaree(input) {
     stockStatus: input.stock || 'In Stock',
     stockQuantity: input.stockQuantity ?? 1,
     flatImageUrl: primary,
-    defaultTryOnImageUrl: input.tryOnImage || primary,
+    defaultTryOnImageUrl: normalizeImageUrl(input.tryOnImage) || primary,
     images,
     isFeatured: Boolean(input.isFeatured),
     isActive: input.isActive !== false,
@@ -199,7 +205,15 @@ async function updateSaree(id, input) {
   if (input.isActive != null) doc.isActive = input.isActive;
   if (input.tryOnImage) doc.defaultTryOnImageUrl = normalizeImageUrl(input.tryOnImage);
   if (input.images) {
+    const removedKeys = (doc.images || [])
+      .map((image) => image.key)
+      .filter((key) => String(key || '').startsWith('imagekit:'));
     doc.images = imageDocs(input.images);
+    const kept = new Set(doc.images.map((image) => image.key));
+    const { deleteFile } = require('./media.service');
+    await Promise.all(removedKeys
+      .filter((key) => !kept.has(key))
+      .map((key) => deleteFile(key).catch(() => null)));
     doc.flatImageUrl = doc.images[0]?.url || '';
     if (!input.tryOnImage && doc.flatImageUrl) {
       doc.defaultTryOnImageUrl = doc.flatImageUrl;
@@ -361,7 +375,12 @@ async function deleteImage(id, imageId) {
   const image = doc.images.id(imageId);
   if (!image) throw new ApiError(404, 'RESOURCE_NOT_FOUND', 'Image not found.');
   const before = presentSaree(doc.toObject(), { admin: true });
-  if (image.key) await storage().delete(image.key);
+  if (String(image.key || '').startsWith('imagekit:')) {
+    const { deleteFile } = require('./media.service');
+    await deleteFile(image.key);
+  } else if (image.key) {
+    await storage().delete(image.key);
+  }
   image.deleteOne();
   if (!doc.images.some((item) => item.isPrimary) && doc.images[0]) doc.images[0].isPrimary = true;
   doc.flatImageUrl = doc.images.find((item) => item.isPrimary)?.url || '';

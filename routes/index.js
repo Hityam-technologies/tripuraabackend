@@ -10,6 +10,7 @@ const router = Router();
 
 router.use('/health', require('./public/health.routes'));
 router.get('/media/access', publicApi.media);
+router.use('/media', require('./media.routes'));
 router.use('/system', require('./public/system.routes'));
 router.use('/content', require('./public/content.routes'));
 router.get('/legal/:slug', publicApi.legal);

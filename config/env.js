@@ -49,6 +49,10 @@ const schema = z.object({
   WEBHOOK_SECRET: z.string().optional().default(''),
   PORTRAIT_MAX_BYTES: z.coerce.number().int().positive().default(8 * 1024 * 1024),
   PRODUCT_MAX_BYTES: z.coerce.number().int().positive().default(8 * 1024 * 1024),
+  // Empty until ImageKit is set up. Routes that need it fail with a clear error.
+  IMAGEKIT_PUBLIC_KEY: z.string().optional().default(''),
+  IMAGEKIT_PRIVATE_KEY: z.string().optional().default(''),
+  IMAGEKIT_URL_ENDPOINT: z.string().optional().default(''),
 });
 
 let cached = null;

@@ -21,6 +21,8 @@ const userSchema = new mongoose.Schema(
     passwordHash: { type: String, required: true, select: false },
     isEmailVerified: { type: Boolean, default: false },
     avatarUrl: { type: String, default: '' },
+    // ImageKit id for avatarUrl, so a new photo or a deleted account can remove the old file.
+    avatarFileId: { type: String, default: '' },
     isBlocked: { type: Boolean, default: false },
     blockedReason: { type: String, default: '' },
     lastLoginAt: { type: Date },

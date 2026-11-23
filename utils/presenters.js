@@ -35,6 +35,7 @@ function presentSaree(doc, { admin = false } = {}) {
     images: images.map((image) => ({
       id: String(image._id),
       url: image.url,
+      key: admin ? (image.key || '') : undefined,
       sortOrder: image.sortOrder,
       isPrimary: Boolean(image.isPrimary),
     })),

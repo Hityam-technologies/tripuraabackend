@@ -57,7 +57,12 @@ async function deleteMe(user) {
   user.email = `deleted-${user._id}@deleted.local`;
   user.phone = `deleted-${user._id}`;
   user.fullName = 'Deleted user';
+  if (user.avatarFileId) {
+    const { deleteFile } = require('./media.service');
+    await deleteFile(user.avatarFileId).catch(() => null);
+  }
   user.avatarUrl = '';
+  user.avatarFileId = '';
   await user.save();
   await User.updateOne({ _id: user._id }, { $unset: { address: 1 } });
 }
