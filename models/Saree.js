@@ -1,5 +1,13 @@
 const mongoose = require('mongoose');
 
+const featureSchema = new mongoose.Schema(
+  {
+    key: { type: String, default: '' },
+    value: { type: String, default: '' },
+  },
+  { _id: false },
+);
+
 const imageSchema = new mongoose.Schema(
   {
     url: { type: String, required: true },

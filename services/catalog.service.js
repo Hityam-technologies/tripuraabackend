@@ -1,6 +1,6 @@
 const { ApiError } = require('../utils/ApiError');
 const { pageMeta } = require('../utils/pagination');
-const { presentSaree, presentCategory } = require('../utils/presenters');
+const { presentSaree, presentCategory, cleanFeatures, legacyLinesFromFeatures } = require('../utils/presenters');
 const { randomToken } = require('../utils/tokens');
 const Saree = require('../models/Saree');
 const Category = require('../models/Category');
@@ -16,7 +16,7 @@ function slugify(value) {
 }
 
 function customerFilter(extra = {}) {
-  return { isActive: true, deletedAt: null, stockQuantity: { $gt: 0 }, ...extra };
+  return { isActive: true, deletedAt: null, ...extra };
 }
 
 async function listCategories(activeOnly = true) {
@@ -129,6 +129,15 @@ async function createSaree(input) {
   const urls = input.images?.length ? input.images : [input.image].filter(Boolean);
   const images = imageDocs(urls);
   const primary = images.find((image) => image.isPrimary)?.url || normalizeImageUrl(input.image) || '';
+  const features = cleanFeatures(input.features);
+  const lines = features.length
+    ? legacyLinesFromFeatures(features)
+    : {
+      body: input.body || '',
+      border: input.border || '',
+      pallu: input.pallu || '',
+      blouse: input.blouse || '',
+    };
   const doc = await Saree.create({
     id: `saree-${randomToken(6).toLowerCase()}`,
     slug,
@@ -146,10 +155,11 @@ async function createSaree(input) {
     productCode: input.productCode || '',
     codeParts: input.codeParts || '',
     collectionLine: input.collectionLine || '',
-    body: input.body || '',
-    border: input.border || '',
-    pallu: input.pallu || '',
-    blouse: input.blouse || '',
+    body: lines.body,
+    border: lines.border,
+    pallu: lines.pallu,
+    blouse: lines.blouse,
+    features,
     bookingTitle: input.bookingTitle || '',
     codeLegend: input.codeLegend || '',
     footerLine: input.footerLine || '',
@@ -196,6 +206,15 @@ async function updateSaree(id, input) {
   };
   for (const [key, field] of Object.entries(map)) {
     if (input[key] != null) doc[field] = input[key];
+  }
+  if (input.features) {
+    const features = cleanFeatures(input.features);
+    doc.features = features;
+    const lines = legacyLinesFromFeatures(features);
+    doc.body = lines.body;
+    doc.border = lines.border;
+    doc.pallu = lines.pallu;
+    doc.blouse = lines.blouse;
   }
   if (input.numericPrice != null) doc.price = input.numericPrice;
   if (input.numericMrp != null) doc.mrp = input.numericMrp;
@@ -268,6 +287,7 @@ async function duplicateSaree(id) {
     border: doc.border,
     pallu: doc.pallu,
     blouse: doc.blouse,
+    features: doc.features || [],
     bookingTitle: doc.bookingTitle,
     codeLegend: doc.codeLegend,
     footerLine: doc.footerLine,

@@ -76,6 +76,24 @@ describe('admin sarees', () => {
     expect(await AuditLog.countDocuments({ resource: 'saree' })).toBeGreaterThan(0);
   });
 
+  test('stores any number of custom feature pairs', async () => {
+    await seedCategory();
+    const admin = await createAdminSession(app);
+    const created = await request(app).post('/api/v1/admin/sarees').set(auth(admin.token)).send(sareeBody({
+      features: [
+        { key: 'Blouse', value: 'Scarlet silk with a gold border' },
+        { key: 'Tassels', value: 'Black silk tassels' },
+        { key: '', value: 'ignored' },
+      ],
+    }));
+    expect(created.status).toBe(201);
+    expect(created.body.data.blouse).toBe('Scarlet silk with a gold border');
+    expect(created.body.data.features).toEqual([
+      { key: 'Blouse', value: 'Scarlet silk with a gold border' },
+      { key: 'Tassels', value: 'Black silk tassels' },
+    ]);
+  });
+
   test('rejects a spoofed or oversized image and reorders a real one', async () => {
     await seedCategory();
     await seedSaree();

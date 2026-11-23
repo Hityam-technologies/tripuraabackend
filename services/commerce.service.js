@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { ApiError } = require('../utils/ApiError');
 const { pageMeta } = require('../utils/pagination');
 const { presentSaree } = require('../utils/presenters');
+const { getOrCreate, presentConfig } = require('./systemConfig.service');
 const { recordAudit } = require('./audit.service');
 const Saree = require('../models/Saree');
 const CartItem = require('../models/CartItem');
@@ -235,14 +236,17 @@ async function loadLines(userId, session) {
   const byId = new Map(sarees.map((saree) => [saree.id, saree]));
   return rows.map((row) => {
     const saree = byId.get(row.sareeId) || null;
-    const inStock = Boolean(
-      saree && saree.isActive && Number(saree.stockQuantity) > 0 && saree.stockStatus !== 'Out of Stock',
-    );
+    const inStock = Boolean(saree && saree.isActive);
     return { row, saree, inStock, quantity: row.quantity };
   });
 }
 
-function presentCart(lines) {
+async function orderQuantityLimit() {
+  return presentConfig(await getOrCreate()).maxOrderQuantity;
+}
+
+async function presentCart(lines) {
+  const maxOrderQuantity = await orderQuantityLimit();
   const items = lines.map(({ row, saree, inStock, quantity }) => {
     const product = saree ? presentSaree(saree) : null;
     return {
@@ -252,7 +256,7 @@ function presentCart(lines) {
       productCode: saree?.productCode || '',
       price: saree ? saree.price : 0,
       quantity,
-      stockQuantity: saree ? Math.max(0, Number(saree.stockQuantity) || 0) : 0,
+      stockQuantity: null,
       image: product?.image || null,
       fabric: saree?.fabric || '',
       weave: saree?.weave || '',
@@ -267,6 +271,7 @@ function presentCart(lines) {
     subtotal,
     shippingFee: SHIPPING_FEE,
     currency: 'INR',
+    maxOrderQuantity,
   };
 }
 
@@ -275,16 +280,14 @@ async function getCart(user) {
 }
 
 async function addItem(user, productId, quantity) {
-  const qty = Math.max(1, Number(quantity) || 1);
+  const cap = await orderQuantityLimit();
+  const qty = Math.min(cap, Math.max(1, Number(quantity) || 1));
   const saree = await Saree.findOne({ id: productId, deletedAt: null, isActive: true });
-  if (!saree || saree.stockQuantity < 1 || saree.stockStatus === 'Out of Stock') {
+  if (!saree) {
     throw new ApiError(409, 'OUT_OF_STOCK', 'This saree is not available to add.');
   }
   const existing = await CartItem.findOne({ userId: user._id, sareeId: productId });
-  const nextQty = (existing?.quantity || 0) + qty;
-  if (nextQty > saree.stockQuantity) {
-    throw new ApiError(409, 'OUT_OF_STOCK', `Only ${saree.stockQuantity} of this saree can be reserved.`);
-  }
+  const nextQty = Math.min(cap, (existing?.quantity || 0) + qty);
   if (existing) {
     existing.quantity = nextQty;
     await existing.save();
@@ -302,19 +305,7 @@ async function setQuantity(user, productId, quantity) {
   }
   const existing = await CartItem.findOne({ userId: user._id, sareeId: productId });
   if (!existing) throw new ApiError(404, 'NOT_IN_CART', 'That saree is not in the bag.');
-  const saree = await Saree.findOne({ id: productId, deletedAt: null });
-  const stock = Math.max(0, Number(saree?.stockQuantity) || 0);
-  const canSell = Boolean(saree && saree.isActive !== false && stock > 0 && saree.stockStatus !== 'Out of Stock');
-  let next = requested;
-  if (requested > existing.quantity) {
-    if (!canSell || existing.quantity >= stock) {
-      throw new ApiError(409, 'OUT_OF_STOCK', stock > 0
-        ? `Only ${stock} of this saree can be reserved.`
-        : 'This saree is out of stock.');
-    }
-    next = Math.min(requested, stock);
-  }
-  existing.quantity = next;
+  existing.quantity = Math.min(await orderQuantityLimit(), requested);
   await existing.save();
   return getCart(user);
 }
@@ -426,35 +417,15 @@ async function nextOrderNumber(session) {
   return `TS-${String(10000 + counter.seq)}`;
 }
 
-async function takeStock(lines, session) {
+async function takeStock(lines) {
   for (const line of lines) {
     if (!line.inStock || !line.saree) {
       throw new ApiError(409, 'OUT_OF_STOCK', 'A saree in the bag is no longer available.');
     }
-    const options = { returnDocument: 'after' };
-    if (session) options.session = session;
-    const updated = await Saree.findOneAndUpdate(
-      { id: line.saree.id, stockQuantity: { $gte: line.quantity }, deletedAt: null },
-      { $inc: { stockQuantity: -line.quantity } },
-      options,
-    );
-    if (!updated) throw new ApiError(409, 'OUT_OF_STOCK', `${line.saree.title} does not have enough pieces left.`);
-    if (updated.stockQuantity <= 0) {
-      updated.stockStatus = 'Out of Stock';
-      await updated.save(session ? { session } : undefined);
-    }
   }
 }
 
-async function restoreStock(items, session) {
-  for (const item of items) {
-    await Saree.updateOne(
-      { id: item.sareeId },
-      { $inc: { stockQuantity: item.quantity }, $set: { stockStatus: 'In Stock' } },
-      session ? { session } : undefined,
-    );
-  }
-}
+async function restoreStock() {}
 
 async function placeOrder(user, input) {
   if (input.paymentMethod === 'ONLINE') {

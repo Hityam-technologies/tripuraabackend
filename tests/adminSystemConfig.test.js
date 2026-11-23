@@ -45,6 +45,12 @@ describe('admin system config', () => {
     expect(rewritten.body.data.featureFlags.enableVideoReelsAutoplay).toBe(false);
     expect(rewritten.body.data.updatedBy).toBeTruthy();
 
+    const limited = await request(app).put('/api/v1/admin/system-config').set(auth(admin.token)).send({ maxOrderQuantity: 4 });
+    expect(limited.status).toBe(200);
+    expect(limited.body.data.maxOrderQuantity).toBe(4);
+    const limitedPublic = await request(app).get('/api/v1/system/config');
+    expect(limitedPublic.body.data.maxOrderQuantity).toBe(4);
+
     const bad = await request(app).put('/api/v1/admin/system-config').set(auth(admin.token)).send({ tryOnModel: 'other' });
     expect(bad.status).toBe(400);
   });

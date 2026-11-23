@@ -31,6 +31,10 @@ const sareeWriteSchema = z.object({
   border: z.string().trim().max(500).optional(),
   pallu: z.string().trim().max(500).optional(),
   blouse: z.string().trim().max(500).optional(),
+  features: z.array(z.object({
+    key: z.string().trim().max(80),
+    value: z.string().trim().max(500),
+  })).max(40).optional(),
   bookingTitle: z.string().trim().max(200).optional(),
   codeLegend: z.string().trim().max(240).optional(),
   footerLine: z.string().trim().max(240).optional(),

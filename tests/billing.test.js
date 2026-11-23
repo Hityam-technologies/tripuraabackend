@@ -93,18 +93,18 @@ describe('billing register', () => {
     const repeat = await bill(session.token, payload);
     expect(repeat.body.data.invoice.invoiceNumber).toBe(first.body.data.invoice.invoiceNumber);
     const stock = await Saree.findOne({ id: 'saree-1' });
-    expect(stock.stockQuantity).toBe(0);
+    expect(stock.stockQuantity).toBe(1);
 
-    const hidden = await request(app).get('/api/v1/sarees');
-    expect(hidden.body.data.items.find((item) => item.id === 'saree-1')).toBeUndefined();
+    const stillListed = await request(app).get('/api/v1/sarees');
+    expect(stillListed.body.data.items.find((item) => item.id === 'saree-1')).toBeTruthy();
 
     const lowered = await request(app).put('/api/v1/admin/system-config').set(auth(admin.token)).send({ gstRate: 5 });
     expect(lowered.body.data.gstRate).toBe(5);
     const stored = await request(app).get(`/api/v1/billing/invoices/${first.body.data.invoice.id}`).set(auth(session.token));
     expect(stored.body.data.invoice.pricing.gstRate).toBe(12);
 
-    const oversell = await bill(session.token, { ...payload, idempotencyKey: 'sale-key-0002' });
-    expect(oversell.status).toBe(409);
+    const again = await bill(session.token, { ...payload, idempotencyKey: 'sale-key-0002' });
+    expect(again.status).toBe(200);
 
     const returned = await request(app)
       .post(`/api/v1/billing/invoices/${first.body.data.invoice.id}/return`)

@@ -10,6 +10,41 @@ function catalogImageUrl(url, admin) {
   return `${url}${join}tr=f-jpg,w-900,c-at_max,q-80`;
 }
 
+function cleanFeatures(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((item) => ({
+      key: String(item?.key || '').trim().slice(0, 80),
+      value: String(item?.value || '').trim().slice(0, 500),
+    }))
+    .filter((item) => item.key && item.value)
+    .slice(0, 40);
+}
+
+function legacyLinesFromFeatures(features) {
+  const find = (name) => {
+    const found = features.find((item) => item.key.toLowerCase() === name);
+    return found ? found.value : '';
+  };
+  return {
+    body: find('body'),
+    border: find('border'),
+    pallu: find('pallu'),
+    blouse: find('blouse'),
+  };
+}
+
+function featuresForRead(doc) {
+  const stored = cleanFeatures(doc.features);
+  if (stored.length) return stored;
+  return cleanFeatures([
+    { key: 'Body', value: doc.body },
+    { key: 'Border', value: doc.border },
+    { key: 'Pallu', value: doc.pallu },
+    { key: 'Blouse', value: doc.blouse },
+  ]);
+}
+
 function presentSaree(doc, { admin = false } = {}) {
   const images = [...(doc.images || [])].sort((a, b) => {
     if (Boolean(a.isPrimary) !== Boolean(b.isPrimary)) return a.isPrimary ? -1 : 1;
@@ -76,3 +111,4 @@ function presentCategory(doc) {
 }
 
 module.exports = { presentSaree, presentCategory };
+module.exports = { presentSaree, presentCategory, cleanFeatures, legacyLinesFromFeatures };

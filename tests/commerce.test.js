@@ -29,17 +29,16 @@ describe('shop orders', () => {
     const raised = await request(app).put('/api/v1/cart/items/saree-1').set(auth(customer.token)).send({ quantity: 3 });
     expect(raised.status).toBe(200);
     expect(raised.body.data.items[0].quantity).toBe(3);
-    expect(raised.body.data.items[0].stockQuantity).toBe(3);
+    expect(raised.body.data.items[0].stockQuantity).toBeNull();
 
     const lowered = await request(app).put('/api/v1/cart/items/saree-1').set(auth(customer.token)).send({ quantity: 2 });
     expect(lowered.status).toBe(200);
     expect(lowered.body.data.items[0].quantity).toBe(2);
 
-    const capped = await request(app).put('/api/v1/cart/items/saree-1').set(auth(customer.token)).send({ quantity: 9 });
-    expect(capped.status).toBe(200);
-    expect(capped.body.data.items[0].quantity).toBe(3);
+    const chosen = await request(app).put('/api/v1/cart/items/saree-1').set(auth(customer.token)).send({ quantity: 9 });
+    expect(chosen.status).toBe(200);
+    expect(chosen.body.data.items[0].quantity).toBe(9);
 
-    await Saree.updateOne({ id: 'saree-1' }, { stockQuantity: 1 });
     const stillLower = await request(app).put('/api/v1/cart/items/saree-1').set(auth(customer.token)).send({ quantity: 1 });
     expect(stillLower.status).toBe(200);
     expect(stillLower.body.data.items[0].quantity).toBe(1);
@@ -73,7 +72,7 @@ describe('shop orders', () => {
     expect(placed.body.data.orderNumber).toMatch(/^TS-/);
 
     const saree = await Saree.findOne({ id: 'saree-1' });
-    expect(saree.stockQuantity).toBe(1);
+    expect(saree.stockQuantity).toBe(2);
     const emptied = await request(app).get('/api/v1/cart').set(auth(customer.token));
     expect(emptied.body.data.cartCount).toBe(0);
 
@@ -115,5 +114,18 @@ describe('shop orders', () => {
 
     const mine = await request(app).get('/api/v1/orders').set(auth(customer.token));
     expect(mine.body.data[0].statusLabel).toBe('Packing');
+  });
+
+  test('the admin order limit is the highest quantity a shopper can choose', async () => {
+    const admin = await createAdminSession(app);
+    const customer = await createVerifiedUser(app);
+    await seedSaree({ price: 1000 });
+    const saved = await request(app).put('/api/v1/admin/system-config').set(auth(admin.token)).send({ maxOrderQuantity: 2 });
+    expect(saved.body.data.maxOrderQuantity).toBe(2);
+    await bag(customer.token, 1);
+    const raised = await request(app).put('/api/v1/cart/items/saree-1').set(auth(customer.token)).send({ quantity: 9 });
+    expect(raised.status).toBe(200);
+    expect(raised.body.data.items[0].quantity).toBe(2);
+    expect(raised.body.data.maxOrderQuantity).toBe(2);
   });
 });

@@ -1,6 +1,12 @@
 const { getEnv } = require('../config/env');
 const SystemConfig = require('../models/SystemConfig');
 
+function normalizeOrderLimit(value) {
+  const number = Math.floor(Number(value));
+  if (!Number.isFinite(number) || number < 1) return 99;
+  return Math.min(999, number);
+}
+
 function presentConfig(doc) {
   const flags = doc.featureFlags || {};
   const tryOnEnabled = flags.tryOnEnabled !== false;
@@ -22,6 +28,7 @@ function presentConfig(doc) {
     tryOnUserRateWindowMs: doc.tryOnUserRateWindowMs,
     tryOnModel: doc.tryOnModel,
     gstRate: Number.isFinite(doc.gstRate) ? doc.gstRate : 5,
+    maxOrderQuantity: normalizeOrderLimit(doc.maxOrderQuantity),
     gstInclusive: doc.gstInclusive !== false,
     updatedAt: doc.updatedAt || null,
     updatedBy: doc.updatedBy || '',
@@ -60,6 +67,7 @@ async function updateConfig(patch, actor) {
   if (patch.tryOnUserRateMax != null) doc.tryOnUserRateMax = patch.tryOnUserRateMax;
   if (patch.tryOnModel) doc.tryOnModel = patch.tryOnModel;
   if (patch.gstRate != null) doc.gstRate = patch.gstRate;
+  if (patch.maxOrderQuantity != null) doc.maxOrderQuantity = normalizeOrderLimit(patch.maxOrderQuantity);
   if (patch.gstInclusive != null) doc.gstInclusive = patch.gstInclusive;
   const flags = { ...(doc.featureFlags?.toObject?.() || doc.featureFlags || {}) };
   const enabled = patch.tryOnEnabled ?? patch.enableTryOn ?? patch.featureFlags?.tryOnEnabled ?? patch.featureFlags?.enableTryOn;
@@ -80,4 +88,4 @@ async function updateConfig(patch, actor) {
   return { before, after: presentConfig(doc) };
 }
 
-module.exports = { getOrCreate, getPublicConfig, updateConfig, presentConfig };
+module.exports = { getOrCreate, getPublicConfig, updateConfig, presentConfig, normalizeOrderLimit };

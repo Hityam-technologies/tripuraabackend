@@ -262,7 +262,11 @@ async function listServices() {
 
 async function gstSettings() {
   const config = presentConfig(await getOrCreate());
-  return { gstRate: config.gstRate, gstInclusive: config.gstInclusive };
+  return {
+    gstRate: config.gstRate,
+    gstInclusive: config.gstInclusive,
+    maxOrderQuantity: config.maxOrderQuantity,
+  };
 }
 
 function calculateTotals({ items = [], services = [], discountType = 'none', discountValue = 0, couponCode = '', gstRate = 5 }) {
@@ -391,8 +395,12 @@ async function createInvoice(input, staff, meta = {}) {
         return { id: known.id, name: known.name, price: known.price };
       });
 
+      const orderLimit = (await gstSettings()).maxOrderQuantity;
       const quotes = [];
       for (const line of input.items) {
+        if (Number(line.quantity) > orderLimit) {
+          throw new ApiError(400, 'QUANTITY_LIMIT', `An order line can include at most ${orderLimit}.`);
+        }
         if (line.isCustom) {
           if (!line.title || !line.price) throw new ApiError(400, 'INVALID_ITEM', 'A custom line needs a name and a price.');
           quotes.push({ line, saree: null });
@@ -400,9 +408,6 @@ async function createInvoice(input, staff, meta = {}) {
         }
         const saree = await tie(Saree.findOne({ id: line.sareeId, deletedAt: null, isActive: true }), session).lean();
         if (!saree) throw new ApiError(404, 'RESOURCE_NOT_FOUND', 'A saree on this bill could not be found.');
-        if ((saree.stockQuantity || 0) < line.quantity) {
-          throw new ApiError(409, 'INSUFFICIENT_STOCK', `Insufficient inventory for "${saree.title}". Available stock: ${saree.stockQuantity || 0}.`);
-        }
         quotes.push({ line, saree });
       }
 
@@ -450,20 +455,6 @@ async function createInvoice(input, staff, meta = {}) {
         gstRate: settings.gstRate,
       });
       const payment = buildPayment(input.payment, pricing.grandTotal);
-
-      for (const quote of quotes) {
-        if (!quote.saree) continue;
-        const updated = await Saree.findOneAndUpdate(
-          { id: quote.saree.id, deletedAt: null, isActive: true, stockQuantity: { $gte: quote.line.quantity } },
-          { $inc: { stockQuantity: -quote.line.quantity } },
-          opt(session, { returnDocument: 'after' }),
-        );
-        if (!updated) {
-          throw new ApiError(409, 'INSUFFICIENT_STOCK', `Insufficient inventory for "${quote.saree.title}". Available stock: ${quote.saree.stockQuantity || 0}.`);
-        }
-        updated.stockStatus = stockLabel(updated.stockQuantity);
-        await updated.save(opt(session));
-      }
 
       const counter = await InvoiceCounter.findOneAndUpdate(
         { key: 'invoice' },
@@ -575,18 +566,6 @@ async function processReturn(id, reason, staff, meta = {}) {
     }), session);
     if (!row) throw new ApiError(404, 'RESOURCE_NOT_FOUND', 'Invoice not found.');
     if (row.status === 'returned') throw new ApiError(409, 'ALREADY_RETURNED', 'Invoice has already been returned.');
-    for (const item of row.items) {
-      if (item.isCustom || !item.sareeId) continue;
-      const saree = await Saree.findOneAndUpdate(
-        { id: item.sareeId },
-        { $inc: { stockQuantity: item.quantity } },
-        opt(session, { returnDocument: 'after' }),
-      );
-      if (saree) {
-        saree.stockStatus = stockLabel(saree.stockQuantity);
-        await saree.save(opt(session));
-      }
-    }
     row.status = 'returned';
     row.returnDetails = {
       returnedAt: new Date().toISOString(),
