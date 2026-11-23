@@ -11,14 +11,12 @@ describe('admin categories', () => {
     await seedCategory({ id: 'bridal', label: 'Bridal', sortOrder: 2 });
     await seedSaree();
     const admin = await createAdminSession(app);
-    const blocked = await request(app).delete('/api/v1/admin/categories/sarees').set(auth(admin.token));
-    expect(blocked.status).toBe(409);
-    expect(blocked.body.error.code).toBe('CATEGORY_IN_USE');
-
-    const removed = await request(app).delete('/api/v1/admin/categories/sarees').set(auth(admin.token)).send({ reassignTo: 'bridal' });
+    const removed = await request(app).delete('/api/v1/admin/categories/sarees').set(auth(admin.token));
     expect(removed.status).toBe(200);
-    const saree = await request(app).get('/api/v1/admin/sarees/saree-1').set(auth(admin.token));
-    expect(saree.body.data.category).toBe('bridal');
+    const saree = await request(app).get('/api/v1/sarees/saree-1');
+    expect(saree.status).toBe(200);
+    expect(saree.body.data.category).toBe('sarees');
+    expect(saree.body.data.numericPrice).toBe(28500);
 
     const created = await request(app).post('/api/v1/admin/categories').set(auth(admin.token)).send({ id: 'tissue', label: 'Tissue' });
     expect(created.status).toBe(201);
@@ -28,15 +26,5 @@ describe('admin categories', () => {
     const order = await request(app).put('/api/v1/admin/categories/reorder').set(auth(admin.token)).send({ order: ['tissue', 'bridal'] });
     expect(order.status).toBe(200);
     expect(order.body.data[0].id).toBe('tissue');
-
-    await seedCategory({ id: 'festive', label: 'Festive', sortOrder: 3 });
-    await seedSaree({ id: 'saree-festive', slug: 'festive-saree', category: 'festive', title: 'Festive Saree' });
-    const cleared = await request(app).delete('/api/v1/admin/categories/festive').set(auth(admin.token)).send({ removeSarees: true });
-    expect(cleared.status).toBe(200);
-    expect(cleared.body.data.removedSarees).toBe(1);
-    const hidden = await request(app).get('/api/v1/sarees/saree-festive');
-    expect(hidden.status).toBe(404);
-    const archived = await request(app).get('/api/v1/admin/sarees/saree-festive').set(auth(admin.token));
-    expect(archived.body.data.deletedAt).toBeTruthy();
   });
 });

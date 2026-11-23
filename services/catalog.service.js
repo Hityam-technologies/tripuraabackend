@@ -417,27 +417,12 @@ async function updateCategory(id, input) {
   return { before, after: presentCategory(doc.toObject()) };
 }
 
-async function deleteCategory(id, options = {}) {
-  const reassignTo = typeof options === 'string' ? options : options.reassignTo;
-  const removeSarees = typeof options === 'object' && options.removeSarees === true;
+async function deleteCategory(id) {
   if (id === 'all') throw new ApiError(400, 'VALIDATION_ERROR', 'The All category cannot be deleted.');
   const doc = await Category.findOne({ id });
   if (!doc) throw new ApiError(404, 'RESOURCE_NOT_FOUND', 'Category not found.');
-  const used = await Saree.countDocuments({ category: id, deletedAt: null });
-  if (used && removeSarees) {
-    await Saree.updateMany(
-      { category: id, deletedAt: null },
-      { $set: { deletedAt: new Date(), isActive: false } },
-    );
-  } else if (used && reassignTo) {
-    const target = await Category.findOne({ id: reassignTo });
-    if (!target) throw new ApiError(400, 'VALIDATION_ERROR', 'Reassignment category was not found.');
-    await Saree.updateMany({ category: id }, { $set: { category: reassignTo } });
-  } else if (used) {
-    throw new ApiError(409, 'CATEGORY_IN_USE', 'Move the sarees to another category, or remove them, before deleting this category.');
-  }
   await doc.deleteOne();
-  return { id, label: doc.label, removedSarees: removeSarees ? used : 0 };
+  return { id, label: doc.label };
 }
 
 async function reorderCategories(order) {
