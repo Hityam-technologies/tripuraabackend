@@ -252,6 +252,7 @@ function presentCart(lines) {
       productCode: saree?.productCode || '',
       price: saree ? saree.price : 0,
       quantity,
+      stockQuantity: saree ? Math.max(0, Number(saree.stockQuantity) || 0) : 0,
       image: product?.image || null,
       fabric: saree?.fabric || '',
       weave: saree?.weave || '',
@@ -294,21 +295,27 @@ async function addItem(user, productId, quantity) {
 }
 
 async function setQuantity(user, productId, quantity) {
-  const qty = Number(quantity);
-  if (!Number.isFinite(qty) || qty <= 0) {
+  const requested = Math.floor(Number(quantity));
+  if (!Number.isFinite(requested) || requested <= 0) {
     await CartItem.deleteOne({ userId: user._id, sareeId: productId });
     return getCart(user);
   }
-  const saree = await Saree.findOne({ id: productId, deletedAt: null, isActive: true });
-  if (!saree || qty > saree.stockQuantity) {
-    throw new ApiError(409, 'OUT_OF_STOCK', 'That quantity is no longer available.');
+  const existing = await CartItem.findOne({ userId: user._id, sareeId: productId });
+  if (!existing) throw new ApiError(404, 'NOT_IN_CART', 'That saree is not in the bag.');
+  const saree = await Saree.findOne({ id: productId, deletedAt: null });
+  const stock = Math.max(0, Number(saree?.stockQuantity) || 0);
+  const canSell = Boolean(saree && saree.isActive !== false && stock > 0 && saree.stockStatus !== 'Out of Stock');
+  let next = requested;
+  if (requested > existing.quantity) {
+    if (!canSell || existing.quantity >= stock) {
+      throw new ApiError(409, 'OUT_OF_STOCK', stock > 0
+        ? `Only ${stock} of this saree can be reserved.`
+        : 'This saree is out of stock.');
+    }
+    next = Math.min(requested, stock);
   }
-  const updated = await CartItem.findOneAndUpdate(
-    { userId: user._id, sareeId: productId },
-    { quantity: qty },
-    { returnDocument: 'after' },
-  );
-  if (!updated) throw new ApiError(404, 'NOT_IN_CART', 'That saree is not in the bag.');
+  existing.quantity = next;
+  await existing.save();
   return getCart(user);
 }
 

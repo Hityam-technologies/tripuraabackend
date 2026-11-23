@@ -21,6 +21,30 @@ async function bag(token, quantity = 1) {
 }
 
 describe('shop orders', () => {
+  test('bag quantity stays on the number the shopper chose', async () => {
+    const customer = await createVerifiedUser(app);
+    await seedSaree({ stockQuantity: 3, price: 10000 });
+    await bag(customer.token, 1);
+
+    const raised = await request(app).put('/api/v1/cart/items/saree-1').set(auth(customer.token)).send({ quantity: 3 });
+    expect(raised.status).toBe(200);
+    expect(raised.body.data.items[0].quantity).toBe(3);
+    expect(raised.body.data.items[0].stockQuantity).toBe(3);
+
+    const lowered = await request(app).put('/api/v1/cart/items/saree-1').set(auth(customer.token)).send({ quantity: 2 });
+    expect(lowered.status).toBe(200);
+    expect(lowered.body.data.items[0].quantity).toBe(2);
+
+    const capped = await request(app).put('/api/v1/cart/items/saree-1').set(auth(customer.token)).send({ quantity: 9 });
+    expect(capped.status).toBe(200);
+    expect(capped.body.data.items[0].quantity).toBe(3);
+
+    await Saree.updateOne({ id: 'saree-1' }, { stockQuantity: 1 });
+    const stillLower = await request(app).put('/api/v1/cart/items/saree-1').set(auth(customer.token)).send({ quantity: 1 });
+    expect(stillLower.status).toBe(200);
+    expect(stillLower.body.data.items[0].quantity).toBe(1);
+  });
+
   test('a cash order uses the catalog price, clears the bag, and can be cancelled', async () => {
     const customer = await createVerifiedUser(app);
     await seedSaree({ price: 49500, stockQuantity: 2 });
