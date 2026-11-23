@@ -36,7 +36,10 @@ describe('admin categories', () => {
     expect(cleared.body.data.removedSarees).toBe(1);
     const hidden = await request(app).get('/api/v1/sarees/saree-festive');
     expect(hidden.status).toBe(404);
-    const archived = await request(app).get('/api/v1/admin/sarees/saree-festive').set(auth(admin.token));
-    expect(archived.status).toBe(404);
+    const kept = await request(app).get('/api/v1/admin/sarees/saree-festive').set(auth(admin.token));
+    expect(kept.status).toBe(200);
+    expect(kept.body.data.isActive).toBe(false);
+    expect(kept.body.data.stock).toBe('Out of Stock');
+    expect(kept.body.data.stockQuantity).toBe(0);
   });
 });
