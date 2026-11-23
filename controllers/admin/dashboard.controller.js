@@ -73,10 +73,7 @@ const updateCategory = asyncHandler(async (req, res) => {
   sendOk(res, result.after);
 });
 const deleteCategory = asyncHandler(async (req, res) => {
-  const result = await catalog.deleteCategory(req.params.id, {
-    reassignTo: req.body?.reassignTo || req.query.reassignTo,
-    removeSarees: req.body?.removeSarees === true || req.query.removeSarees === 'true',
-  });
+  const result = await catalog.deleteCategory(req.params.id);
   await writeAudit(req, { action: 'DELETE_CATEGORY', resource: 'category', resourceId: req.params.id, after: result });
   sendOk(res, result);
 });
