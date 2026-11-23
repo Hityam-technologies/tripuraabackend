@@ -28,14 +28,15 @@ const LIBRARY_FOLDERS = {
   sarees: '/sarees',
   hero: '/hero',
   categories: '/categories',
-  avatars: '/avatars',
+  avatars: '/profile-pics',
+  'profile-pics': '/profile-pics',
   'try-on': '/try-on',
   brand: '/brand',
 };
 
 const uploadLibraryImage = asyncHandler(async (req, res) => {
   const folder = LIBRARY_FOLDERS[String(req.query.folder || '')];
-  if (!folder) throw new ApiError(400, 'BAD_FOLDER', 'Choose a saree, hero, category, avatar, try-on, or brand image.');
+  if (!folder) throw new ApiError(400, 'BAD_FOLDER', 'Choose a saree, hero, category, profile-pics, try-on, or brand image.');
   if (!req.file) throw new ApiError(400, 'BAD_IMAGE', 'Choose an image to upload.');
   try {
     const stored = await media.uploadFile(req.file.buffer, req.file.originalname, folder, [String(req.query.folder)]);
@@ -68,7 +69,7 @@ const uploadAvatar = asyncHandler(async (req, res) => {
   const previousId = req.user.avatarFileId || '';
   let stored = null;
   try {
-    stored = await media.uploadFile(req.file.buffer, req.file.originalname, '/avatars', ['avatar']);
+    stored = await media.uploadFile(req.file.buffer, req.file.originalname, '/profile-pics', ['avatar', 'profile-pics']);
     req.file.buffer = null;
     req.user.avatarUrl = stored.url;
     req.user.avatarFileId = stored.fileId;

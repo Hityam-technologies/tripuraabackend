@@ -107,7 +107,7 @@ describe('ImageKit media routes', () => {
       .set(auth(customer.token))
       .attach('avatar', png, 'me.png');
     expect(first.status).toBe(201);
-    expect(first.body.data.user.avatarUrl).toContain('/avatars/');
+    expect(first.body.data.user.avatarUrl).toContain('/profile-pics/');
 
     const second = await request(app)
       .post('/api/v1/media/upload/avatar')
@@ -117,7 +117,7 @@ describe('ImageKit media routes', () => {
     expect(deleteFile).toHaveBeenCalledWith('fileid0001');
 
     const fresh = await User.findById(customer.user.id);
-    expect(fresh.avatarUrl).toContain('/avatars/');
+    expect(fresh.avatarUrl).toContain('/profile-pics/');
     expect(fresh.avatarFileId).toBe('fileid0002');
   });
 
