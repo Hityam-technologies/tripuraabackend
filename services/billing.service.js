@@ -94,6 +94,7 @@ function presentSharedCustomer(user, billing) {
     name: user?.fullName || billing?.name || '',
     phone,
     email: user?.email || billing?.email || '',
+    avatarUrl: user?.avatarUrl || '',
     city: user?.address?.city || billing?.city || '',
     address: addressText(user) || billing?.address || '',
     gstin: billing?.gstin || '',

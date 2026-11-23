@@ -25,8 +25,12 @@ function presentEnquiry(enquiry, user, saree) {
     status: enquiry.status,
     channel: enquiry.channel || 'app',
     customerName: user?.fullName || '',
+    // Alias used by the admin dashboard recent-inquiries table
+    userName: user?.fullName || '',
     customerEmail: user?.email || '',
     customerPhone: enquiry.phone,
+    customerAvatarUrl: user?.avatarUrl || '',
+    avatarUrl: user?.avatarUrl || '',
     notes: (enquiry.internalNotes || []).map((note) => ({
       id: String(note._id),
       text: note.text,

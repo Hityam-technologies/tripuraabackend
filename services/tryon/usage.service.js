@@ -290,13 +290,14 @@ async function recordRefund({ userId, tryOns, amountPaise, note }) {
   });
 }
 
-function presentRow(row, config) {
+function presentRow(row, config, avatarUrl = '') {
   const rate = rateOf(config);
   return {
     userId: String(row.userId),
     name: row.name || '-',
     phone: row.phone || '-',
     email: row.email || '-',
+    avatarUrl: avatarUrl || row.avatarUrl || '',
     joinedAt: row.joinedAt,
     firstTryOnAt: row.firstTryOnAt,
     lastTryOnAt: row.lastTryOnAt,
@@ -431,8 +432,13 @@ async function listUsers(query) {
   if ((query.preset || query.view) === 'abuse') {
     groups = await abuseGroups();
   }
+  const userIds = rows.map((row) => row.userId).filter(Boolean);
+  const users = userIds.length
+    ? await User.find({ _id: { $in: userIds } }).select('avatarUrl').lean()
+    : [];
+  const avatars = new Map(users.map((user) => [String(user._id), user.avatarUrl || '']));
   return {
-    items: rows.map((row) => presentRow(row, config)),
+    items: rows.map((row) => presentRow(row, config, avatars.get(String(row.userId)) || '')),
     ...pageMeta(query.page, query.limit, total),
     totals,
     settings: presentSettings(config),
@@ -506,8 +512,9 @@ async function userDetail(userId, query, actor, meta) {
       note: entry.note,
       createdAt: entry.createdAt,
     }));
+  const account = await User.findById(userId).select('avatarUrl').lean();
   return {
-    summary: presentRow(summary, config),
+    summary: presentRow(summary, config, account?.avatarUrl || ''),
     settings: presentSettings(config),
     ledger: ledger.map((entry) => ({
       id: String(entry._id),

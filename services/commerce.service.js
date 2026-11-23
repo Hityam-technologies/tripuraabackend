@@ -176,7 +176,7 @@ function trackingSteps(status) {
   }));
 }
 
-function presentOrder(order) {
+function presentOrder(order, avatarUrl = '') {
   return {
     id: String(order._id),
     orderNumber: order.orderNumber,
@@ -198,6 +198,8 @@ function presentOrder(order) {
     customerName: order.customerName || '',
     customerPhone: order.customerPhone || '',
     customerEmail: order.customerEmail || '',
+    customerAvatarUrl: avatarUrl || '',
+    avatarUrl: avatarUrl || '',
     items: (order.items || []).map((item) => ({
       id: item.sareeId,
       productId: item.sareeId,
@@ -212,6 +214,14 @@ function presentOrder(order) {
     shippingAddress: order.shippingAddress || {},
     trackingSteps: trackingSteps(order.status),
   };
+}
+
+async function withOrderAvatars(orders) {
+  const ids = [...new Set(orders.map((order) => String(order.userId || '')).filter(Boolean))];
+  if (!ids.length) return orders.map((order) => presentOrder(order));
+  const users = await User.find({ _id: { $in: ids } }).select('avatarUrl').lean();
+  const avatars = new Map(users.map((user) => [String(user._id), user.avatarUrl || '']));
+  return orders.map((order) => presentOrder(order, avatars.get(String(order.userId)) || ''));
 }
 
 function presentCoupon(coupon) {
@@ -562,13 +572,14 @@ async function adminList(query) {
     ShopOrder.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
     ShopOrder.countDocuments(filter),
   ]);
-  return { items: rows.map(presentOrder), ...pageMeta(page, limit, total) };
+  return { items: await withOrderAvatars(rows), ...pageMeta(page, limit, total) };
 }
 
 async function adminGet(orderId) {
   const order = await ShopOrder.findById(orderId);
   if (!order) throw new ApiError(404, 'ORDER_NOT_FOUND', 'That order was not found.');
-  return presentOrder(order);
+  const [presented] = await withOrderAvatars([order]);
+  return presented;
 }
 
 async function adminSetStatus(orderId, status, actor, meta) {

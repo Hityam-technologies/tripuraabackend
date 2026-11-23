@@ -351,7 +351,7 @@ async function myDashboard(user) {
   const rows = await Referral.find({ referrerId: user._id })
     .sort({ createdAt: -1 })
     .limit(50)
-    .populate('refereeId', 'fullName');
+    .populate('refereeId', 'fullName avatarUrl');
   const totalRewards = rows
     .filter((row) => row.status === 'COMPLETED')
     .reduce((sum, row) => sum + rupees(row.referrerReward), 0);
@@ -366,9 +366,15 @@ async function myDashboard(user) {
     enabled: program.enabled,
     shareLink: `${SHARE_BASE}/invite/${code}`,
     shareMessage: `Shop handcrafted pure silk handloom sarees at Tripuraa Sangrahah! Use my referral code ${code} to get ₹${bonus.toLocaleString('en-IN')} instant cash on signup: ${SHARE_BASE}`,
+    // Current account profile (so the app can show the member's photo on this screen)
+    profile: {
+      fullName: user.fullName || '',
+      avatarUrl: user.avatarUrl || '',
+    },
     referrals: rows.map((row) => ({
       id: String(row._id),
       name: formatDisplayName(row.refereeId?.fullName),
+      avatarUrl: row.refereeId?.avatarUrl || '',
       date: friendlyDate(row.createdAt),
       points: row.status === 'CANCELLED' ? '+₹0' : moneyLabel(row.referrerReward),
       status: statusLabel(row.status),
@@ -403,8 +409,8 @@ async function adminList(query) {
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
-      .populate('referrerId', 'fullName email phone referralCode')
-      .populate('refereeId', 'fullName email phone'),
+      .populate('referrerId', 'fullName email phone referralCode avatarUrl')
+      .populate('refereeId', 'fullName email phone avatarUrl'),
     Referral.countDocuments(filter),
   ]);
   return {
@@ -420,12 +426,14 @@ async function adminList(query) {
         name: personName(row.referrerId),
         email: row.referrerId?.email || '',
         code: row.referrerId?.referralCode || row.referralCode,
+        avatarUrl: row.referrerId?.avatarUrl || '',
       },
       referee: {
         id: row.refereeId?._id ? String(row.refereeId._id) : '',
         name: personName(row.refereeId),
         email: row.refereeId?.email || '',
         phone: row.refereeId?.phone || '',
+        avatarUrl: row.refereeId?.avatarUrl || '',
       },
       firstOrderId: row.firstOrderId ? String(row.firstOrderId) : '',
       createdAt: row.createdAt,
