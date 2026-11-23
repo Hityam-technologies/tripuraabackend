@@ -60,6 +60,23 @@ function presentUpload(uploaded, kind) {
   };
 }
 
+async function placeInFolder(imagekit, uploaded, destination) {
+  const filePath = String(uploaded?.filePath || '');
+  if (!filePath || filePath.startsWith(`${destination}/`)) return uploaded;
+  const sourceFilePath = filePath.startsWith('/') ? filePath : `/${filePath}`;
+  const name = sourceFilePath.slice(sourceFilePath.lastIndexOf('/') + 1);
+  await imagekit.moveFile({
+    sourceFilePath,
+    destinationPath: `${destination}/`,
+  });
+  const nextPath = `${destination}/${name}`;
+  return {
+    ...uploaded,
+    filePath: nextPath,
+    url: String(uploaded.url || '').split('?')[0].replace(sourceFilePath, nextPath),
+  };
+}
+
 async function uploadAsset(fileBuffer, fileName, folder, tags, kind = 'image') {
   const video = kind === 'video';
   const limit = video ? 80 * 1024 * 1024 : 10 * 1024 * 1024;
@@ -76,15 +93,17 @@ async function uploadAsset(fileBuffer, fileName, folder, tags, kind = 'image') {
     await assertRealImage(fileBuffer);
   }
   const imagekit = getImageKit();
+  const destination = cleanFolder(folder);
   try {
     const uploaded = await imagekit.upload({
       file: fileBuffer,
       fileName: safeFileName(fileName),
-      folder: cleanFolder(folder),
+      folder: destination,
       tags: cleanTags(tags),
       useUniqueFileName: true,
     });
-    return presentUpload(uploaded, video ? 'video' : 'image');
+    const placed = await placeInFolder(imagekit, uploaded, destination);
+    return presentUpload(placed, video ? 'video' : 'image');
   } catch (error) {
     if (error instanceof ApiError) throw error;
     logger.error('imagekit upload failed', { message: error.message });

@@ -25,6 +25,7 @@ const png = Buffer.from(
 
 const upload = jest.fn();
 const deleteFile = jest.fn();
+const moveFile = jest.fn();
 const url = jest.fn();
 const getAuthenticationParameters = jest.fn();
 
@@ -43,6 +44,8 @@ describe('ImageKit media routes', () => {
     });
     deleteFile.mockReset();
     deleteFile.mockResolvedValue({});
+    moveFile.mockReset();
+    moveFile.mockResolvedValue({});
     url.mockReset();
     url.mockImplementation(({ path, src, transformation }) => {
       const base = src || `https://ik.imagekit.io/test${path}`;
@@ -53,6 +56,7 @@ describe('ImageKit media routes', () => {
     imagekit.getImageKit.mockReturnValue({
       upload,
       deleteFile,
+      moveFile,
       url,
       getAuthenticationParameters,
     });
@@ -151,6 +155,28 @@ describe('ImageKit media routes', () => {
       .set(auth(customer.token))
       .attach('avatar', Buffer.from('hello'), 'notes.txt');
     expect(text.status).toBe(400);
+  });
+
+  test('a file saved at the library root is moved into its folder', async () => {
+    upload.mockImplementationOnce(async () => ({
+      fileId: 'fileidroot1',
+      name: 'photo.webp',
+      filePath: '/photo.webp',
+      url: 'https://ik.imagekit.io/test/photo.webp',
+      thumbnailUrl: 'https://ik.imagekit.io/test/thumb/photo.webp',
+    }));
+    const admin = await createAdminSession(app);
+    const saved = await request(app)
+      .post('/api/v1/media/upload/image')
+      .query({ folder: 'sarees' })
+      .set(auth(admin.token))
+      .attach('image', png, 'photo.png');
+    expect(saved.status).toBe(201);
+    expect(moveFile).toHaveBeenCalledWith({
+      sourceFilePath: '/photo.webp',
+      destinationPath: '/sarees/',
+    });
+    expect(saved.body.data.url).toBe('https://ik.imagekit.io/test/sarees/photo.webp');
   });
 
   test('a signed-in client can ask for upload signature without the private key', async () => {

@@ -28,12 +28,14 @@ const LIBRARY_FOLDERS = {
   sarees: '/sarees',
   hero: '/hero',
   categories: '/categories',
+  avatars: '/avatars',
+  'try-on': '/try-on',
   brand: '/brand',
 };
 
 const uploadLibraryImage = asyncHandler(async (req, res) => {
   const folder = LIBRARY_FOLDERS[String(req.query.folder || '')];
-  if (!folder) throw new ApiError(400, 'BAD_FOLDER', 'Choose a saree, hero, category, or brand image.');
+  if (!folder) throw new ApiError(400, 'BAD_FOLDER', 'Choose a saree, hero, category, avatar, try-on, or brand image.');
   if (!req.file) throw new ApiError(400, 'BAD_IMAGE', 'Choose an image to upload.');
   try {
     const stored = await media.uploadFile(req.file.buffer, req.file.originalname, folder, [String(req.query.folder)]);
