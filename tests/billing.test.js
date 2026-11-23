@@ -142,4 +142,56 @@ describe('billing register', () => {
     expect(short.status).toBe(400);
     expect((await Saree.findOne({ id: 'saree-1' })).stockQuantity).toBe(2);
   });
+
+  test('the counter and the app share one customer for the same phone', async () => {
+    const { createVerifiedUser } = require('./helpers/authHelpers');
+    const User = require('../models/User');
+    const session = await cashier('908172');
+    const created = await request(app).post('/api/v1/billing/customers').set(auth(session.token)).send({
+      name: 'Meera Iyer',
+      phone: '9845099001',
+      city: 'Agartala',
+      address: '12 Lake Road',
+    });
+    expect(created.status).toBe(200);
+    expect(created.body.data.customer.visitsCount).toBe(0);
+
+    const shopper = await createVerifiedUser(app, {
+      fullName: 'Meera Iyer',
+      phone: '+91 9845099001',
+    });
+    expect(shopper.verified.status).toBe(200);
+
+    const found = await request(app)
+      .get('/api/v1/billing/customers/lookup')
+      .set(auth(session.token))
+      .query({ phone: '9845099001' });
+    expect(found.status).toBe(200);
+    expect(found.body.data.found).toBe(true);
+    expect(found.body.data.customer.name).toBe('Meera Iyer');
+    expect(found.body.data.customer.email).toBe(shopper.email);
+    expect(found.body.data.customer.city).toBe('Agartala');
+    expect(found.body.data.customer.address).toContain('12 Lake Road');
+
+    const saved = await User.findOne({ email: shopper.email });
+    expect(saved.address.addressLine1).toBe('12 Lake Road');
+    expect(saved.address.city).toBe('Agartala');
+
+    const listed = await request(app)
+      .get('/api/v1/billing/customers')
+      .set(auth(session.token))
+      .query({ search: 'Meera' });
+    expect(listed.status).toBe(200);
+    expect(listed.body.data.customers.filter((row) => row.phone === '9845099001')).toHaveLength(1);
+
+    const renamed = await request(app).post('/api/v1/billing/customers').set(auth(session.token)).send({
+      name: 'Meera Nair',
+      phone: '9845099001',
+      city: 'Agartala',
+      address: '12 Lake Road',
+    });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.data.customer.name).toBe('Meera Nair');
+    expect((await User.findOne({ email: shopper.email })).fullName).toBe('Meera Nair');
+  });
 });

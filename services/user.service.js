@@ -13,6 +13,7 @@ const TryOnJob = require('../models/TryOnJob');
 const SavedTryOnLook = require('../models/SavedTryOnLook');
 const Enquiry = require('../models/Enquiry');
 const Saree = require('../models/Saree');
+const billing = require('./billing.service');
 
 async function getMe(user) {
   await referral.ensureReferralCode(user);
@@ -28,6 +29,7 @@ async function updateMe(user, patch) {
   }
   if (patch.avatarUrl != null) user.avatarUrl = patch.avatarUrl;
   await user.save();
+  await billing.rememberAppCustomer(user);
   return publicUser(user);
 }
 
@@ -41,6 +43,7 @@ async function changeOwnPassword(user, currentPassword, newPassword) {
 }
 
 async function deleteMe(user) {
+  await billing.detachAppCustomer(user._id);
   const profiles = await DrapeProfile.find({ userId: user._id });
   const jobs = await TryOnJob.find({ userId: user._id });
   const disk = storage();

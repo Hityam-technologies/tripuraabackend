@@ -16,6 +16,7 @@ const InvoiceCounter = require('../models/InvoiceCounter');
 const HeldBill = require('../models/HeldBill');
 const Saree = require('../models/Saree');
 const Category = require('../models/Category');
+const User = require('../models/User');
 
 const DEFAULT_SERVICES = [
   { id: 'srv-1', name: 'Fall & Pico Finishing', price: 350, description: 'Hand-stitched cotton fall and precision edge pico' },
@@ -64,6 +65,43 @@ function phoneDigits(value) {
   return String(value || '').replace(/\D/g, '').slice(-10);
 }
 
+function addressText(user) {
+  const address = user?.address || {};
+  return [address.addressLine1, address.addressLine2, address.city, address.state, address.postalCode]
+    .filter(Boolean)
+    .join(', ');
+}
+
+async function findAppUser(digits, session) {
+  if (!digits || digits.length < 10) return null;
+  const query = User.findOne({
+    deletedAt: null,
+    $or: [
+      { phone: digits },
+      { phone: `+91${digits}` },
+      { phone: `91${digits}` },
+      { phone: `+91 ${digits}` },
+    ],
+  });
+  return tie(query, session);
+}
+
+function presentSharedCustomer(user, billing) {
+  const phone = phoneDigits(user?.phone || billing?.phone);
+  return {
+    id: user ? String(user._id) : String(billing._id),
+    userId: user ? String(user._id) : '',
+    name: user?.fullName || billing?.name || '',
+    phone,
+    email: user?.email || billing?.email || '',
+    city: user?.address?.city || billing?.city || '',
+    address: addressText(user) || billing?.address || '',
+    gstin: billing?.gstin || '',
+    visitsCount: billing?.visitsCount || 0,
+    lifetimeSpend: billing?.lifetimeSpend || 0,
+  };
+}
+
 function stockLabel(quantity) {
   if (quantity <= 0) return 'Out of Stock';
   if (quantity <= 2) return `${quantity} Left in Stock`;
@@ -80,18 +118,56 @@ function presentStaff(staff) {
   };
 }
 
-function presentCustomer(doc) {
-  return {
-    id: String(doc._id),
-    name: doc.name,
-    phone: doc.phone,
-    email: doc.email || '',
-    city: doc.city || '',
-    address: doc.address || '',
-    gstin: doc.gstin || '',
-    visitsCount: doc.visitsCount || 0,
-    lifetimeSpend: doc.lifetimeSpend || 0,
-  };
+async function rememberAppCustomer(user, options = {}) {
+  const digits = phoneDigits(user?.phone);
+  if (!user?._id || user.deletedAt || digits.length !== 10) return null;
+
+  let row = await BillingCustomer.findOne({ userId: user._id });
+  if (row && row.phone !== digits) {
+    const taken = await BillingCustomer.findOne({ phone: digits, _id: { $ne: row._id } });
+    if (taken) {
+      row.userId = undefined;
+      await row.save();
+      row = taken;
+    } else {
+      row.phone = digits;
+    }
+  }
+  if (!row) row = await BillingCustomer.findOne({ phone: digits });
+  if (!row || (row.userId && String(row.userId) !== String(user._id))) return null;
+
+  row.userId = user._id;
+  row.name = user.fullName || row.name;
+  if (user.email) row.email = user.email;
+  const line = addressText(user);
+  if (options.profile) {
+    row.city = user.address?.city || '';
+    row.address = line;
+  } else {
+    if (user.address?.city) row.city = user.address.city;
+    if (line) row.address = line;
+  }
+  await row.save();
+
+  if (options.fillEmptyAddress) {
+    const current = user.address?.toObject?.() || user.address || {};
+    if (!current.addressLine1 && row.address) {
+      user.address = {
+        fullName: user.fullName,
+        phone: digits,
+        addressLine1: row.address,
+        city: row.city || '',
+      };
+      user.markModified('address');
+      await user.save();
+    }
+  }
+  return row;
+}
+
+async function detachAppCustomer(userId) {
+  if (!userId) return;
+  await BillingCustomer.updateMany({ userId }, { $unset: { userId: 1 } });
 }
 
 function presentProduct(doc) {
@@ -492,15 +568,33 @@ async function createInvoice(input, staff, meta = {}) {
 
       const digits = phoneDigits(customer.phone);
       if (digits.length === 10) {
+        const appUser = await findAppUser(digits, session);
+        if (appUser && customer.name && customer.name !== 'Walk-in Guest') {
+          appUser.fullName = customer.name;
+          if (customer.city || customer.address) {
+            const current = appUser.address?.toObject?.() || appUser.address || {};
+            appUser.address = {
+              ...current,
+              fullName: customer.name,
+              phone: digits,
+              city: customer.city || current.city || '',
+              addressLine1: customer.address || current.addressLine1 || '',
+            };
+            appUser.markModified('address');
+          }
+          await appUser.save(opt(session));
+        }
         await BillingCustomer.findOneAndUpdate(
           { phone: digits },
           {
-            $setOnInsert: { name: customer.name, phone: digits },
+            $setOnInsert: { phone: digits },
             $set: {
-              email: customer.email || '',
-              city: customer.city || '',
-              address: customer.address || '',
+              name: appUser?.fullName || customer.name,
+              email: customer.email || appUser?.email || '',
+              city: customer.city || appUser?.address?.city || '',
+              address: customer.address || addressText(appUser),
               gstin: customer.gstin || '',
+              ...(appUser ? { userId: appUser._id } : {}),
             },
             $inc: { visitsCount: 1, lifetimeSpend: pricing.grandTotal },
           },
@@ -685,41 +779,79 @@ async function restockProduct(sareeId, quantity, staff) {
 async function lookupCustomer(phone) {
   const digits = phoneDigits(phone);
   if (digits.length < 5) return { found: false, customer: null };
-  const row = await BillingCustomer.findOne({ phone: digits });
-  if (!row) return { found: false, customer: null };
-  return { found: true, customer: presentCustomer(row) };
+  const [user, billing] = await Promise.all([
+    digits.length === 10 ? findAppUser(digits) : null,
+    BillingCustomer.findOne({ phone: digits }),
+  ]);
+  if (!user && !billing) return { found: false, customer: null };
+  return { found: true, customer: presentSharedCustomer(user, billing) };
 }
 
 async function listCustomers(search) {
-  const filter = {};
+  const userFilter = { deletedAt: null };
+  const billingFilter = {};
   if (search) {
     const term = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    filter.$or = [
-      { name: { $regex: term, $options: 'i' } },
-      { phone: { $regex: term } },
-      { email: { $regex: term, $options: 'i' } },
-    ];
+    userFilter.$or = ['fullName', 'phone', 'email'].map((field) => ({
+      [field]: { $regex: term, $options: 'i' },
+    }));
+    billingFilter.$or = ['name', 'phone', 'email'].map((field) => ({
+      [field]: { $regex: term, $options: 'i' },
+    }));
   }
-  const rows = await BillingCustomer.find(filter).sort({ updatedAt: -1 }).limit(50);
-  return rows.map(presentCustomer);
+  const [users, bills] = await Promise.all([
+    User.find(userFilter).sort({ updatedAt: -1 }).limit(50),
+    BillingCustomer.find(billingFilter).sort({ updatedAt: -1 }).limit(50),
+  ]);
+  const byPhone = new Map();
+  bills.forEach((billing) => {
+    byPhone.set(phoneDigits(billing.phone), { billing, user: null });
+  });
+  users.forEach((user) => {
+    const digits = phoneDigits(user.phone);
+    if (digits.length < 10) return;
+    const slot = byPhone.get(digits) || { billing: null, user: null };
+    slot.user = user;
+    byPhone.set(digits, slot);
+  });
+  return [...byPhone.values()].map(({ user, billing }) => presentSharedCustomer(user, billing));
 }
 
 async function createCustomer(input) {
   const phone = phoneDigits(input.phone);
   if (phone.length !== 10) throw new ApiError(400, 'INVALID_PHONE', 'Enter a 10-digit mobile number.');
-  const existing = await BillingCustomer.findOne({ phone });
-  if (existing) return presentCustomer(existing);
-  const row = await BillingCustomer.create({
-    name: input.name,
-    phone,
-    email: input.email || '',
-    city: input.city || '',
-    address: input.address || '',
-    gstin: input.gstin || '',
-    visitsCount: 0,
-    lifetimeSpend: 0,
-  });
-  return presentCustomer(row);
+  const user = await findAppUser(phone);
+  if (user) {
+    if (input.name) user.fullName = input.name;
+    if (input.city || input.address) {
+      const current = user.address?.toObject?.() || user.address || {};
+      user.address = {
+        ...current,
+        fullName: input.name || user.fullName,
+        phone,
+        city: input.city || current.city || '',
+        addressLine1: input.address || current.addressLine1 || '',
+      };
+      user.markModified('address');
+    }
+    await user.save();
+  }
+  const row = await BillingCustomer.findOneAndUpdate(
+    { phone },
+    {
+      $setOnInsert: { phone, visitsCount: 0, lifetimeSpend: 0 },
+      $set: {
+        name: user?.fullName || input.name,
+        email: input.email || user?.email || '',
+        city: input.city || user?.address?.city || '',
+        address: input.address || addressText(user),
+        gstin: input.gstin || '',
+        ...(user ? { userId: user._id } : {}),
+      },
+    },
+    { upsert: true, returnDocument: 'after' },
+  );
+  return presentSharedCustomer(user, row);
 }
 
 async function todaySummary(staff) {
@@ -781,6 +913,8 @@ module.exports = {
   lookupCustomer,
   listCustomers,
   createCustomer,
+  rememberAppCustomer,
+  detachAppCustomer,
   todaySummary,
   presentStaff,
 };

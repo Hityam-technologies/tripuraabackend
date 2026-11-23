@@ -12,6 +12,7 @@ const ShopOrder = require('../models/ShopOrder');
 const InvoiceCounter = require('../models/InvoiceCounter');
 const WalletTransaction = require('../models/WalletTransaction');
 const referral = require('./referral.service');
+const billing = require('./billing.service');
 
 const SHIPPING_FEE = 0;
 const NEXT_STATUS = {
@@ -335,14 +336,17 @@ async function saveAddress(user, input) {
   customer.markModified('address');
   await customer.save();
   await dropLegacyAddresses(customer._id);
+  await billing.rememberAppCustomer(customer, { profile: true });
   return presentAddress(customer);
 }
 
 async function removeAddress(user) {
   const customer = await loadCustomer(user);
   if (!presentAddress(customer)) throw new ApiError(404, 'ADDRESS_NOT_FOUND', 'That address was not found.');
+  customer.address = undefined;
   await User.updateOne({ _id: customer._id }, { $unset: { address: 1 } });
   await dropLegacyAddresses(customer._id);
+  await billing.rememberAppCustomer(customer, { profile: true });
   return { deleted: true };
 }
 

@@ -32,6 +32,16 @@ async function verifyPassword(hash, password) {
   }
 }
 
+async function attachCounterCustomer(user) {
+  const billing = require('./billing.service');
+  await billing.rememberAppCustomer(user, { fillEmptyAddress: true });
+}
+
+async function detachCounterCustomer(userId) {
+  const billing = require('./billing.service');
+  await billing.detachAppCustomer(userId);
+}
+
 function publicUser(user) {
   return {
     id: String(user._id),
@@ -96,9 +106,11 @@ async function register({ fullName, email, phone, password, referralCode }) {
     existing.passwordHash = await hashPassword(password);
     existing.pendingReferralCode = pendingReferralCode;
     await existing.save();
+    await attachCounterCustomer(existing);
     try {
       await issueCode(email, 'registration', { userId: String(existing._id) });
     } catch (error) {
+      await detachCounterCustomer(existing._id);
       await User.deleteOne({ _id: existing._id, isEmailVerified: false });
       await Otp.deleteMany({ email, purpose: 'registration' });
       throw error;
@@ -128,9 +140,11 @@ async function register({ fullName, email, phone, password, referralCode }) {
     }
   }
   if (!user) throw new ApiError(500, 'REFERRAL_CODE', 'Could not create a referral code. Please try again.');
+  await attachCounterCustomer(user);
   try {
     await issueCode(email, 'registration', { userId: String(user._id) });
   } catch (error) {
+    await detachCounterCustomer(user._id);
     await User.deleteOne({ _id: user._id, isEmailVerified: false });
     await Otp.deleteMany({ email, purpose: 'registration' });
     throw error;
@@ -145,6 +159,7 @@ async function verifyRegistration({ email, code, referralCode }, meta) {
   user.isEmailVerified = true;
   user.lastLoginAt = new Date();
   await user.save();
+  await attachCounterCustomer(user);
   await referral.ensureReferralCode(user);
   await referral.grantSignupBonus(user, referralCode);
   try {
